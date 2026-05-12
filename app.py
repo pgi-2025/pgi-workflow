@@ -988,6 +988,21 @@ def unhandled_exception(e):
     traceback.print_exc()
     return jsonify({"error": "Unexpected error: " + str(e)}), 500
 
+@app.route("/manifest.json")
+def manifest():
+    return send_file("manifest.json", mimetype="application/manifest+json")
+
+@app.route("/sw.js")
+def service_worker():
+    resp = send_file("sw.js", mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_file(f"static/{filename}")
+
 @app.route("/")
 def home():
     return send_file("taskflow_v3.html")
