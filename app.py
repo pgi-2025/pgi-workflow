@@ -661,14 +661,14 @@ def message_counts():
 
 def send_morning_email(sender_name, message_text, recipients):
     """
-    Send morning message emails via Resend HTTP API (works on Render free tier).
-    Falls back to SMTP if RESEND_API_KEY is not set (for local dev).
+    Send morning message emails via Brevo (Sendinblue) HTTP API.
+    Works on Render free tier. Falls back to SMTP for local dev.
     Returns (success: bool, detail: str).
     """
     if not recipients:
         return False, "No recipient email addresses found."
 
-    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    brevo_key  = os.getenv("BREVO_API_KEY", "").strip()
     smtp_email    = os.getenv("SMTP_EMAIL", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
 
@@ -688,24 +688,25 @@ def send_morning_email(sender_name, message_text, recipients):
         '''</div>'''
     )
 
-    # ── RESEND (HTTP API — works on Render free tier) ──────────────────────
-    if resend_key:
-        sent = 0
+    # ── BREVO HTTP API (works on Render free tier) ─────────────────────────
+    if brevo_key:
+        sent   = 0
         failed = []
         for recipient in recipients:
             payload = json.dumps({
-                "from":    f"Plant Green Inertia <onboarding@resend.dev>",
-                "to":      [recipient],
-                "subject": f"Morning Message from {sender_name} - Plant Green Inertia",
-                "text":    plain_body,
-                "html":    html_body,
+                "sender":      {"name": "Plant Green Inertia", "email": smtp_email or "pgiworkflow@gmail.com"},
+                "to":          [{"email": recipient}],
+                "subject":     f"Morning Message from {sender_name} - Plant Green Inertia",
+                "textContent": plain_body,
+                "htmlContent": html_body,
             }).encode("utf-8")
             req = urllib.request.Request(
-                "https://api.resend.com/emails",
+                "https://api.brevo.com/v3/smtp/email",
                 data    = payload,
                 headers = {
-                    "Authorization": f"Bearer {resend_key}",
-                    "Content-Type":  "application/json",
+                    "api-key":      brevo_key,
+                    "Content-Type": "application/json",
+                    "Accept":       "application/json",
                 },
                 method = "POST"
             )
@@ -713,22 +714,22 @@ def send_morning_email(sender_name, message_text, recipients):
                 with urllib.request.urlopen(req, timeout=15) as resp:
                     resp.read()
                     sent += 1
-                    print(f"[EMAIL/Resend] Sent to {recipient}")
+                    print(f"[EMAIL/Brevo] Sent to {recipient}")
             except urllib.error.HTTPError as e:
                 body = e.read().decode()
                 failed.append(recipient)
-                print(f"[EMAIL/Resend] HTTPError {e.code} for {recipient}: {body}")
+                print(f"[EMAIL/Brevo] HTTPError {e.code} for {recipient}: {body}")
             except Exception as exc:
                 failed.append(recipient)
-                print(f"[EMAIL/Resend] Error for {recipient}: {exc}")
+                print(f"[EMAIL/Brevo] Error for {recipient}: {exc}")
 
         if sent:
-            return True, f"Sent via Resend to {sent} recipient(s). Failed: {len(failed)}."
-        return False, f"Resend: all {len(failed)} sends failed. Check RESEND_API_KEY and sender domain."
+            return True, f"Sent via Brevo to {sent} recipient(s). Failed: {len(failed)}."
+        return False, f"Brevo: all {len(failed)} sends failed. Check BREVO_API_KEY."
 
     # ── SMTP FALLBACK (local dev only — blocked on Render free tier) ───────
     if not smtp_email or not smtp_password:
-        return False, "No email service configured. Set RESEND_API_KEY in Render env vars."
+        return False, "No email service configured. Set BREVO_API_KEY in Render env vars."
 
     sent   = []
     failed = []
@@ -814,7 +815,7 @@ def test_email():
 
     smtp_email    = os.getenv("SMTP_EMAIL", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-    resend_key    = os.getenv("RESEND_API_KEY", "").strip()
+    brevo_key     = os.getenv("BREVO_API_KEY", "").strip()
 
     # Send test email to the founder's own inbox
     success, detail = send_morning_email(
@@ -828,8 +829,8 @@ def test_email():
         "detail":           detail,
         "smtp_email":       smtp_email,
         "smtp_pass_set":    bool(smtp_password),
-        "resend_key_set":   bool(resend_key),
-        "email_service":    "Resend (HTTP)" if resend_key else "SMTP (Gmail)"
+        "brevo_key_set":    bool(brevo_key),
+        "email_service":    "Brevo (HTTP)" if brevo_key else "SMTP (Gmail)"
     })
 
 
