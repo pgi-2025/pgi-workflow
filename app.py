@@ -16,6 +16,9 @@ import datetime
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import json
+import urllib.request
+import urllib.error
 
 
 # ─────────────────────────────────────────────
@@ -658,39 +661,77 @@ def message_counts():
 
 def send_morning_email(sender_name, message_text, recipients):
     """
-    Send the morning message via a single SMTP session.
+    Send morning message emails via Resend HTTP API (works on Render free tier).
+    Falls back to SMTP if RESEND_API_KEY is not set (for local dev).
     Returns (success: bool, detail: str).
     """
-    smtp_email    = os.getenv("SMTP_EMAIL", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
-
-    if not smtp_email or not smtp_password:
-        detail = "SMTP credentials missing in .env"
-        print(f"[EMAIL] {detail}")
-        return False, detail
-
     if not recipients:
         return False, "No recipient email addresses found."
+
+    resend_key = os.getenv("RESEND_API_KEY", "").strip()
+    smtp_email    = os.getenv("SMTP_EMAIL", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
 
     plain_body = (
         f"Good morning, {sender_name} here\n\n"
         f"{message_text}\n\n"
         f"Have a productive day!\n-- {sender_name}, Plant Green Inertia"
     )
-
     html_body = (
         '''<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;'''
         '''background:#fffdf5;border:1px solid #e5d98b;border-radius:8px">'''
         f'''<h2 style="color:#b8860b;margin-top:0">Good morning, {sender_name} here</h2>'''
         f'''<p style="color:#333;font-size:15px;line-height:1.7">{message_text}</p>'''
         '''<hr style="border:none;border-top:1px solid #e5d98b;margin:20px 0">'''
-        f'''<p style="color:#888;font-size:13px">Have a productive day! &mdash; <strong>{sender_name}</strong>, Plant Green Inertia</p>'''
+        f'''<p style="color:#888;font-size:13px">Have a productive day! &mdash;'''
+        f''' <strong>{sender_name}</strong>, Plant Green Inertia</p>'''
         '''</div>'''
     )
 
+    # ── RESEND (HTTP API — works on Render free tier) ──────────────────────
+    if resend_key:
+        sent = 0
+        failed = []
+        for recipient in recipients:
+            payload = json.dumps({
+                "from":    f"Plant Green Inertia <onboarding@resend.dev>",
+                "to":      [recipient],
+                "subject": f"Morning Message from {sender_name} - Plant Green Inertia",
+                "text":    plain_body,
+                "html":    html_body,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                "https://api.resend.com/emails",
+                data    = payload,
+                headers = {
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type":  "application/json",
+                },
+                method = "POST"
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    resp.read()
+                    sent += 1
+                    print(f"[EMAIL/Resend] Sent to {recipient}")
+            except urllib.error.HTTPError as e:
+                body = e.read().decode()
+                failed.append(recipient)
+                print(f"[EMAIL/Resend] HTTPError {e.code} for {recipient}: {body}")
+            except Exception as exc:
+                failed.append(recipient)
+                print(f"[EMAIL/Resend] Error for {recipient}: {exc}")
+
+        if sent:
+            return True, f"Sent via Resend to {sent} recipient(s). Failed: {len(failed)}."
+        return False, f"Resend: all {len(failed)} sends failed. Check RESEND_API_KEY and sender domain."
+
+    # ── SMTP FALLBACK (local dev only — blocked on Render free tier) ───────
+    if not smtp_email or not smtp_password:
+        return False, "No email service configured. Set RESEND_API_KEY in Render env vars."
+
     sent   = []
     failed = []
-
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
             server.login(smtp_email, smtp_password)
@@ -704,22 +745,18 @@ def send_morning_email(sender_name, message_text, recipients):
                     mime_msg.attach(MIMEText(html_body,  "html",  "utf-8"))
                     server.sendmail(smtp_email, recipient, mime_msg.as_string())
                     sent.append(recipient)
-                    print(f"[EMAIL] Sent to {recipient}")
+                    print(f"[EMAIL/SMTP] Sent to {recipient}")
                 except Exception as per_exc:
                     failed.append(recipient)
-                    print(f"[EMAIL] Failed for {recipient}: {per_exc}")
+                    print(f"[EMAIL/SMTP] Failed for {recipient}: {per_exc}")
     except smtplib.SMTPAuthenticationError as auth_err:
-        detail = f"Gmail auth failed: {auth_err}. Check app password in .env."
-        print(f"[EMAIL] {detail}")
-        return False, detail
+        return False, f"Gmail auth failed: {auth_err}. Check app password."
     except Exception as conn_err:
-        detail = f"SMTP connection error: {conn_err}"
-        print(f"[EMAIL] {detail}")
-        return False, detail
+        return False, f"SMTP connection error: {conn_err}"
 
     if sent:
-        return True, f"Sent to {len(sent)} recipient(s). Failed: {len(failed)}."
-    return False, f"All {len(failed)} sends failed."
+        return True, f"Sent via SMTP to {len(sent)} recipient(s). Failed: {len(failed)}."
+    return False, f"SMTP: all {len(failed)} sends failed."
 
 
 @app.route("/api/morning-message", methods=["GET"])
@@ -777,19 +814,22 @@ def test_email():
 
     smtp_email    = os.getenv("SMTP_EMAIL", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+    resend_key    = os.getenv("RESEND_API_KEY", "").strip()
 
     # Send test email to the founder's own inbox
     success, detail = send_morning_email(
         sender_name  = caller.name,
-        message_text = "TEST: This is a TaskFlow test email confirming that SMTP delivery is working correctly.",
+        message_text = "TEST: This is a TaskFlow test email confirming that email delivery is working correctly on Render.",
         recipients   = [smtp_email]
     )
 
     return jsonify({
-        "success":       success,
-        "detail":        detail,
-        "smtp_email":    smtp_email,
-        "smtp_pass_set": bool(smtp_password)
+        "success":          success,
+        "detail":           detail,
+        "smtp_email":       smtp_email,
+        "smtp_pass_set":    bool(smtp_password),
+        "resend_key_set":   bool(resend_key),
+        "email_service":    "Resend (HTTP)" if resend_key else "SMTP (Gmail)"
     })
 
 
