@@ -603,6 +603,19 @@ def delete_task(task_id):
     db.session.commit()
     return jsonify({"success": True})
 
+@app.route("/api/tasks/reset-completed", methods=["DELETE"])
+@jwt_required()
+def reset_completed_tasks():
+    user = db.session.get(User, get_jwt_identity())
+    if user.role != "founder":
+        return jsonify({"error": "Only founder can reset tasks"}), 403
+    completed = Task.query.filter_by(status="completed").all()
+    count = len(completed)
+    for task in completed:
+        db.session.delete(task)
+    db.session.commit()
+    return jsonify({"success": True, "deleted": count})
+
 
 # ─────────────────────────────────────────────
 # MESSAGES — GET BY CHANNEL, SEND
