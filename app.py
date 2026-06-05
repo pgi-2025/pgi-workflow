@@ -933,6 +933,19 @@ def mark_attendance():
     db.session.commit()
     return jsonify({"success": True, "status": status, "date": today})
 
+@app.route("/api/attendance/history")
+@jwt_required()
+def attendance_history():
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    records = Attendance.query.all()
+    return jsonify([{
+        "userId": a.userId,
+        "status": a.status,
+        "date":   a.date
+    } for a in records])
+
 
 # ─────────────────────────────────────────────
 # NOTIFICATIONS
