@@ -485,7 +485,9 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
   <!-- SIDEBAR -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-      <div class="s-icon">🌿</div>
+      <div class="s-icon" style="background:none;box-shadow:none;padding:0;overflow:hidden">
+        <img src="pgi logo.jpg" alt="PGI" style="width:32px;height:32px;object-fit:contain;border-radius:8px">
+      </div>
       <span>TaskFlow</span>
     </div>
     <nav class="sidebar-nav">
@@ -864,6 +866,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 <div class="toast" id="toast"></div>
 
 <script>
+  
 // ═══════════════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════════════
@@ -1298,6 +1301,19 @@ function taskCardHTML(t) {
   </div>`;
 }
 
+async function resetCompletedTasks() {
+  const count = TASKS.filter(t => t.status === 'completed').length;
+  if (!confirm(`This will permanently delete ${count} completed task${count!==1?'s':''}. This cannot be undone. Continue?`)) return;
+  const res = await api('DELETE', '/tasks/reset-completed');
+  if (res?.success) {
+    TASKS = TASKS.filter(t => t.status !== 'completed');
+    showToast(`✓ Cleared ${res.deleted} completed task${res.deleted!==1?'s':''}`);
+    renderDashboard(); renderMyTasks(); updateStats();
+  } else {
+    showToast('Failed to reset tasks');
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // GOOGLE FORM TASK FLOW
 // ═══════════════════════════════════════════════════════════
@@ -1524,39 +1540,177 @@ function renderDashboard() {
 function renderMyTasks() {
   const el = document.getElementById('my-tasks-list'); if (!el) return;
   if (currentUser.role === 'founder') {
-    el.innerHTML = `<div class="section-header" style="margin-bottom:16px"><div class="section-title">All Tasks</div></div>${TASKS.length?renderKanban(TASKS):'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>'}`;
+    const completedCount = TASKS.filter(t => t.status === 'completed').length;
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+        <div class="section-title">All Tasks</div>
+        ${completedCount > 0 ? `<button class="btn-sm btn-outline" style="color:var(--red);border-color:rgba(239,68,68,0.35);font-size:12px;padding:7px 14px" onclick="resetCompletedTasks()">🗑 Reset ${completedCount} completed task${completedCount!==1?'s':''}</button>` : ''}
+      </div>
+      ${TASKS.length ? renderKanban(TASKS) : '<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>'}`;
   } else {
     const tasks  = TASKS.filter(t => t.assignedTo === currentUser.id);
     const sorted = [...tasks].sort((a,b) => { if (a.daily_key && !b.daily_key) return -1; if (!a.daily_key && b.daily_key) return 1; return 0; });
     el.innerHTML = `<div class="tasks-list">${sorted.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks assigned yet</p></div>':sorted.map(taskCardHTML).join('')}</div>`;
   }
 }
-
 // ═══════════════════════════════════════════════════════════
 // ATTENDANCE
 // ═══════════════════════════════════════════════════════════
-function renderAttendance() {
+async function renderAttendance() {
   const view = document.getElementById('attendance-view');
   if (currentUser.role === 'founder') {
-    const all = getNonFounders();
-    const pCount = all.filter(u => ATTENDANCE[u.id]==='present').length;
+    const all    = getNonFounders();
+    const pCount = all.filter(u => ATTENDANCE[u.id] === 'present').length;
     const aCount = all.length - pCount;
-    const emps = getEmployees(), interns = getInterns(), trs = getTrainers();
+    const emps   = getEmployees(), interns = getInterns(), trs = getTrainers();
+
+    const hist = await api('GET', '/attendance/history') || [];
+
+    const userDates = {};
+    hist.forEach(r => {
+      if (!userDates[r.userId]) userDates[r.userId] = {};
+      userDates[r.userId][r.date] = r.status;
+    });
+    const allDates  = [...new Set(hist.map(r => r.date))].sort();
+    const totalDays = allDates.length;
+
+    const memberStats = all.map(u => {
+      const days    = userDates[u.id] || {};
+      const present = allDates.filter(d => days[d] === 'present').length;
+      const absent  = allDates.filter(d => days[d] === 'absent').length;
+      const pct     = totalDays > 0 ? Math.round((present / totalDays) * 100) : 0;
+      return { u, present, absent, pct, days };
+    }).sort((a, b) => b.pct - a.pct);
+
+    const avgPct      = memberStats.length ? Math.round(memberStats.reduce((s, m) => s + m.pct, 0) / memberStats.length) : 0;
+    const perfectCount = memberStats.filter(m => m.pct === 100 && totalDays > 0).length;
+    const atRisk       = memberStats.filter(m => m.pct < 50  && totalDays > 0).length;
+
+    const barColor = pct => pct >= 90 ? '#22C55E' : pct >= 70 ? '#FBBF24' : pct >= 50 ? '#FB923C' : '#EF4444';
+    const barText  = pct => pct >= 90 ? '#15803D' : pct >= 70 ? '#92400E' : pct >= 50 ? '#9A3412' : '#B91C1C';
+
+    const fmtDate = d => {
+      const [, m, day] = d.split('-');
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return months[parseInt(m,10)-1] + ' ' + parseInt(day,10);
+    };
+
+    const dateHeaders = allDates.map(d =>
+      `<th style="padding:8px 6px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);white-space:nowrap;border-bottom:1px solid var(--border)">${fmtDate(d)}</th>`
+    ).join('');
+
+    const memberRows = memberStats.map(({ u, present, absent, pct, days }) => {
+      const c       = ac(u.id);
+      const bColor  = barColor(pct);
+      const tColor  = barText(pct);
+      const dateCells = allDates.map(d => {
+        const s = days[d];
+        if (s === 'present') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
+        if (s === 'absent')  return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
+        return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:10px">—</span></td>`;
+      }).join('');
+
+      return `<tr>
+        <td style="padding:10px 8px 10px 18px;border-bottom:1px solid var(--border2);position:sticky;left:0;background:var(--surface);z-index:1;min-width:160px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px;flex-shrink:0">${u.initials}</div>
+            <div style="min-width:0">
+              <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div>
+              <div style="font-size:10px;color:var(--text3);text-transform:capitalize">${u.role}${u.team ? ' · ' + (TEAM_CONFIG.find(t => t.id === u.team)?.name || u.team) : ''}</div>
+            </div>
+          </div>
+        </td>
+        ${dateCells}
+        <td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border2)">
+          <span style="color:#15803D;font-weight:600;font-size:13px">${present}</span>
+        </td>
+        <td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border2)">
+          <span style="color:#B91C1C;font-weight:600;font-size:13px">${absent}</span>
+        </td>
+        <td style="padding:6px 14px;border-bottom:1px solid var(--border2)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:48px;height:5px;background:var(--surface3);border-radius:3px;overflow:hidden;flex-shrink:0">
+              <div style="height:100%;width:${pct}%;background:${bColor};border-radius:3px"></div>
+            </div>
+            <span style="font-size:12px;font-weight:600;color:${tColor};min-width:30px">${pct}%</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
     view.innerHTML = `
-      <div class="section-header" style="margin-bottom:20px"><div class="section-title">Attendance Overview</div><div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div></div>
+      <div class="section-header" style="margin-bottom:20px">
+        <div class="section-title">Attendance Overview</div>
+        <div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+      </div>
+
       <div class="att-summary-row">
-        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--green)">${pCount}</div><div class="att-sum-lbl">Present</div></div>
-        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--red)">${aCount}</div><div class="att-sum-lbl">Absent</div></div>
+        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--green)">${pCount}</div><div class="att-sum-lbl">Present Today</div></div>
+        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--red)">${aCount}</div><div class="att-sum-lbl">Absent Today</div></div>
         <div class="att-sum-card"><div class="att-sum-num">${all.length}</div><div class="att-sum-lbl">Total Staff</div></div>
       </div>
-      ${emps.length?`<div class="section-header" style="margin-top:10px"><div class="section-title">Employees</div></div><div class="founder-att-grid fade">${emps.map(founderAttCard).join('')}</div>`:''}
-      ${interns.length?`<div class="section-header" style="margin-top:20px"><div class="section-title">Interns</div></div><div class="founder-att-grid fade">${interns.map(founderAttCard).join('')}</div>`:''}
-      ${trs.length?`<div class="section-header" style="margin-top:20px"><div class="section-title">Trainers</div></div><div class="founder-att-grid fade">${trs.map(founderAttCard).join('')}</div>`:''}
-      ${!all.length?'<div class="empty-state"><div class="e-icon">👥</div><p>No staff added yet.</p></div>':''}`;
+
+      ${emps.length    ? `<div class="section-header" style="margin-top:10px"><div class="section-title">Employees</div></div><div class="founder-att-grid fade">${emps.map(founderAttCard).join('')}</div>` : ''}
+      ${interns.length ? `<div class="section-header" style="margin-top:20px"><div class="section-title">Interns</div></div><div class="founder-att-grid fade">${interns.map(founderAttCard).join('')}</div>` : ''}
+      ${trs.length     ? `<div class="section-header" style="margin-top:20px"><div class="section-title">Trainers</div></div><div class="founder-att-grid fade">${trs.map(founderAttCard).join('')}</div>` : ''}
+      ${!all.length    ? '<div class="empty-state"><div class="e-icon">👥</div><p>No staff added yet.</p></div>' : ''}
+
+      <div class="divider"></div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-top:4px">
+
+        <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-family:'DM Serif Display',serif;font-size:17px">Cumulative attendance report</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:3px">
+              ${totalDays > 0 ? `${totalDays} day${totalDays !== 1 ? 's' : ''} tracked · ${allDates[0] ? fmtDate(allDates[0]) : ''} → ${allDates[allDates.length-1] ? fmtDate(allDates[allDates.length-1]) : ''}` : 'No data yet'}
+            </div>
+          </div>
+          ${totalDays > 0 ? `<button class="btn-sm btn-outline" onclick="exportAttendanceCSV()" style="font-size:12px;padding:7px 14px;color:var(--gold2);border-color:var(--gold3)">⬇ Export CSV</button>` : ''}
+        </div>
+
+        ${totalDays > 0 ? `
+        <div class="att-summary-row" style="padding:14px 20px;margin-bottom:0;gap:8px">
+          <div class="att-sum-card"><div class="att-sum-num" style="color:var(--green);font-size:22px">${avgPct}%</div><div class="att-sum-lbl">Avg rate</div></div>
+          <div class="att-sum-card"><div class="att-sum-num" style="color:var(--blue);font-size:22px">${totalDays}</div><div class="att-sum-lbl">Days tracked</div></div>
+          <div class="att-sum-card"><div class="att-sum-num" style="font-size:22px">${perfectCount}</div><div class="att-sum-lbl">Perfect</div></div>
+          <div class="att-sum-card"><div class="att-sum-num" style="color:var(--red);font-size:22px">${atRisk}</div><div class="att-sum-lbl">At risk</div></div>
+        </div>
+
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+          <table style="border-collapse:collapse;font-size:12px;min-width:100%">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border)">
+                <th style="padding:9px 8px 9px 18px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;position:sticky;left:0;background:var(--surface);z-index:2;min-width:160px">Member</th>
+                ${dateHeaders}
+                <th style="padding:9px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Present</th>
+                <th style="padding:9px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Absent</th>
+                <th style="padding:9px 14px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;min-width:100px">Rate</th>
+              </tr>
+            </thead>
+            <tbody>${memberRows}</tbody>
+          </table>
+        </div>
+
+        <div style="display:flex;gap:16px;padding:10px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);align-items:center;flex-wrap:wrap">
+          <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:9px;font-weight:700;margin-right:4px">P</span>Present</span>
+          <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:9px;font-weight:700;margin-right:4px">A</span>Absent</span>
+          <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:9px;margin-right:4px">—</span>No record</span>
+        </div>
+        ` : `
+        <div style="padding:32px;text-align:center;color:var(--text3);font-size:13px">
+          <div style="font-size:32px;margin-bottom:10px;opacity:0.35">📊</div>
+          <p>Cumulative report will appear here once attendance has been marked for at least one day.</p>
+        </div>`}
+      </div>`;
+
   } else {
     const st = ATTENDANCE[currentUser.id] || 'absent';
     view.innerHTML = `<div style="max-width:480px">
-      <div style="margin-bottom:24px"><div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">Mark Your Attendance</div><div style="font-size:13px;color:var(--text2)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div></div>
+      <div style="margin-bottom:24px">
+        <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">Mark Your Attendance</div>
+        <div style="font-size:13px;color:var(--text2)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
+      </div>
       <div class="attendance-bar-wrap fade">
         <div class="att-user-info"><div class="att-user-name">${currentUser.name}</div><div class="att-user-role">${currentUser.role}</div></div>
         <div class="att-toggle-wrap">
@@ -1566,13 +1720,39 @@ function renderAttendance() {
         </div>
       </div>
       <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;text-align:center">
-        <div style="font-size:40px;margin-bottom:10px">${st==='present'?'✅':'❌'}</div>
-        <div style="font-size:16px;font-weight:600;color:${st==='present'?'var(--green)':'var(--red)'}">${st==='present'?'You are marked Present today':'You are marked Absent today'}</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:6px">${st==='present'?'Your attendance has been recorded':'Slide the toggle to mark yourself present'}</div>
+        <div style="font-size:40px;margin-bottom:10px">${st === 'present' ? '✅' : '❌'}</div>
+        <div style="font-size:16px;font-weight:600;color:${st === 'present' ? 'var(--green)' : 'var(--red)'}">${st === 'present' ? 'You are marked Present today' : 'You are marked Absent today'}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:6px">${st === 'present' ? 'Your attendance has been recorded' : 'Slide the toggle to mark yourself present'}</div>
       </div>
     </div>`;
   }
   updateSidebarAttendance();
+}
+
+
+function exportAttendanceCSV() {
+  api('GET', '/attendance/history').then(hist => {
+    if (!hist) { showToast('Could not load data'); return; }
+    const allDates = [...new Set(hist.map(r => r.date))].sort();
+    const members  = getNonFounders();
+    const header   = ['Name', 'Role', 'Team', ...allDates, 'Total Present', 'Total Absent', 'Rate %'];
+    const rows     = [header];
+    members.forEach(u => {
+      const byDate = {};
+      hist.filter(r => r.userId === u.id).forEach(r => byDate[r.date] = r.status);
+      const cells   = allDates.map(d => byDate[d] ? (byDate[d] === 'present' ? 'P' : 'A') : '-');
+      const present = cells.filter(s => s === 'P').length;
+      const absent  = cells.filter(s => s === 'A').length;
+      const pct     = allDates.length ? Math.round((present / allDates.length) * 100) : 0;
+      rows.push([u.name, u.role, u.team || '', ...cells, present, absent, pct + '%']);
+    });
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const a   = document.createElement('a');
+    a.href    = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.download = 'PGI_Attendance_' + new Date().toISOString().split('T')[0] + '.csv';
+    a.click();
+    showToast('CSV downloaded ✓');
+  });
 }
 
 function founderAttCard(u) {
