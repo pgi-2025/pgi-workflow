@@ -1036,7 +1036,7 @@ async function initApp() {
   document.getElementById('user-avatar').textContent   = currentUser.initials || '?';
   document.getElementById('user-avatar').style.background = `linear-gradient(135deg,${c}99,${c})`;
   document.getElementById('user-name').textContent     = currentUser.name;
-  document.getElementById('user-role-lbl').textContent = currentUser.role === 'founder' ? 'Founder & CEO' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
+  document.getElementById('user-role-lbl').textContent = currentUser.role === 'founder' ? 'Founder' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
 
   document.querySelectorAll('.founder-only').forEach(el => { el.style.display = currentUser.role === 'founder' ? '' : 'none'; });
 
