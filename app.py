@@ -1143,32 +1143,178 @@ def create_project():
 @jwt_required()
 def bulk_projects():
     """Replace all projects with a new set (for spreadsheet sync)."""
+    import logging
+    log = logging.getLogger("pgi.projects.bulk")
+
     caller = db.session.get(User, get_jwt_identity())
     if caller.role != "founder":
         return jsonify({"error": "Forbidden"}), 403
+
     data = request.get_json() or {}
     rows = data.get("projects", [])
-    Project.query.delete()
-    created = 0
-    for row in rows:
-        cat = (row.get("category") or "").strip()
-        if cat not in ("Government", "Private", "B2C"):
-            continue
-        name = (row.get("name") or "").strip()
-        if not name:
-            continue
-        db.session.add(Project(
-            name=name, category=cat,
-            client_name=(row.get("client_name") or "").strip(),
-            status=(row.get("status") or "Active").strip(),
-            start_date=(row.get("start_date") or "").strip(),
-            team_members=(row.get("team_members") or "").strip(),
-            description=(row.get("description") or "").strip(),
-            created_at=datetime.datetime.now().strftime("%b %d, %Y")
-        ))
-        created += 1
-    db.session.commit()
-    return jsonify({"success": True, "created": created})
+
+    log.info(f"[bulk_projects] Received {len(rows)} rows from {caller.name}")
+    print(f"[bulk_projects] Received {len(rows)} rows from {caller.name}")
+
+    if not isinstance(rows, list):
+        return jsonify({"error": "projects must be a list"}), 400
+
+    try:
+        Project.query.delete()
+        created = 0
+        skipped = 0
+        for row in rows:
+            cat  = (row.get("category") or "").strip()
+            name = (row.get("name") or "").strip()
+
+            if not name:
+                skipped += 1
+                continue
+
+            # Normalize category (case-insensitive)
+            valid_cats = {"government": "Government", "private": "Private", "b2c": "B2C"}
+            cat_norm = valid_cats.get(cat.lower())
+            if not cat_norm:
+                log.warning(f"[bulk_projects] Invalid category '{cat}' for project '{name}', defaulting to Government")
+                print(f"[bulk_projects] Invalid category '{cat}' for '{name}', defaulting to Government")
+                cat_norm = "Government"
+
+            db.session.add(Project(
+                name=name,
+                category=cat_norm,
+                client_name=(row.get("client_name") or "").strip(),
+                status=(row.get("status") or "Active").strip(),
+                start_date=(row.get("start_date") or "").strip(),
+                team_members=(row.get("team_members") or "").strip(),
+                description=(row.get("description") or "").strip(),
+                created_at=datetime.datetime.now().strftime("%b %d, %Y")
+            ))
+            created += 1
+
+        db.session.commit()
+        log.info(f"[bulk_projects] Committed {created} projects (skipped {skipped})")
+        print(f"[bulk_projects] Committed {created} projects (skipped {skipped})")
+        return jsonify({"success": True, "created": created, "skipped": skipped})
+
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        print(f"[bulk_projects] ERROR: {e}")
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
+
+
+@app.route("/api/projects/upload-xlsx", methods=["POST"])
+@jwt_required()
+def upload_projects_xlsx():
+    """
+    Server-side XLSX upload fallback.
+    Accepts multipart/form-data with field 'file'.
+    Requires: pip install openpyxl pandas
+    """
+    import logging
+    log = logging.getLogger("pgi.projects.upload")
+
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+
+    if "file" not in request.files:
+        log.error("[upload_xlsx] No file field in request")
+        return jsonify({"error": "No file uploaded. Send multipart/form-data with field 'file'"}), 400
+
+    f = request.files["file"]
+    if not f or f.filename == "":
+        return jsonify({"error": "Empty file received"}), 400
+
+    ext = f.filename.rsplit(".", 1)[-1].lower() if "." in f.filename else ""
+    if ext not in ("xlsx", "xls", "csv"):
+        return jsonify({"error": f"Unsupported file type: .{ext}. Use .xlsx, .xls, or .csv"}), 400
+
+    log.info(f"[upload_xlsx] Received: {f.filename} ({ext}) from {caller.name}")
+    print(f"[upload_xlsx] Received: {f.filename} ({ext}) from {caller.name}")
+
+    try:
+        import pandas as pd
+        import io
+
+        file_bytes = f.read()
+        if not file_bytes:
+            return jsonify({"error": "File is empty"}), 400
+
+        if ext == "csv":
+            df = pd.read_csv(io.BytesIO(file_bytes))
+        else:
+            df = pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl" if ext == "xlsx" else "xlrd")
+
+        print(f"[upload_xlsx] Columns found: {list(df.columns)}")
+        print(f"[upload_xlsx] Row count: {len(df)}")
+
+        # Normalize column names (strip whitespace)
+        df.columns = [str(c).strip() for c in df.columns]
+
+        # Validate required column
+        if "Project Name" not in df.columns and "Name" not in df.columns:
+            return jsonify({
+                "error": f"Missing 'Project Name' column. Found columns: {', '.join(df.columns)}"
+            }), 400
+
+        VALID_CATS = {"government": "Government", "private": "Private", "b2c": "B2C"}
+
+        def col(row, *names):
+            for n in names:
+                v = row.get(n)
+                if v and str(v).strip() and str(v).strip().lower() != "nan":
+                    return str(v).strip()
+            return ""
+
+        rows = []
+        skipped = 0
+        for _, row in df.iterrows():
+            row = row.to_dict()
+            name = col(row, "Project Name", "project name", "Name")
+            if not name:
+                skipped += 1
+                continue
+            cat_raw = col(row, "Category", "category") or "Government"
+            cat = VALID_CATS.get(cat_raw.lower(), "Government")
+            rows.append({
+                "name": name, "category": cat,
+                "client_name": col(row, "Client Name", "client name", "Client"),
+                "status": col(row, "Status", "status") or "Active",
+                "start_date": col(row, "Start Date", "start date", "Date"),
+                "team_members": col(row, "Team Members", "team members", "Team"),
+                "description": col(row, "Description", "description"),
+            })
+
+        if not rows:
+            return jsonify({"error": "No valid project rows found after parsing"}), 400
+
+        Project.query.delete()
+        created = 0
+        for row in rows:
+            db.session.add(Project(
+                name=row["name"], category=row["category"],
+                client_name=row["client_name"], status=row["status"],
+                start_date=row["start_date"], team_members=row["team_members"],
+                description=row["description"],
+                created_at=datetime.datetime.now().strftime("%b %d, %Y")
+            ))
+            created += 1
+
+        db.session.commit()
+        print(f"[upload_xlsx] Committed {created} projects, skipped {skipped} empty rows")
+        return jsonify({"success": True, "created": created, "skipped": skipped})
+
+    except ImportError as e:
+        print(f"[upload_xlsx] Missing library: {e}")
+        return jsonify({"error": f"Server missing library: {e}. Run: pip install pandas openpyxl"}), 500
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        print(f"[upload_xlsx] ERROR: {e}")
+        return jsonify({"error": f"File processing error: {str(e)}"}), 500
 
 
 @app.route("/api/projects/<int:pid>", methods=["PUT"])
@@ -1242,22 +1388,38 @@ def bulk_interns():
         return jsonify({"error": "Forbidden"}), 403
     data = request.get_json() or {}
     rows = data.get("interns", [])
-    Intern.query.delete()
-    created = 0
-    for row in rows:
-        name = (row.get("name") or "").strip()
-        if not name:
-            continue
-        db.session.add(Intern(
-            name=name,
-            domain=(row.get("domain") or "").strip(),
-            joining_date=(row.get("joining_date") or "").strip(),
-            status=(row.get("status") or "Active").strip(),
-            created_at=datetime.datetime.now().strftime("%b %d, %Y")
-        ))
-        created += 1
-    db.session.commit()
-    return jsonify({"success": True, "created": created})
+
+    print(f"[bulk_interns] Received {len(rows)} rows from {caller.name}")
+
+    if not isinstance(rows, list):
+        return jsonify({"error": "interns must be a list"}), 400
+
+    try:
+        Intern.query.delete()
+        created = 0
+        skipped = 0
+        for row in rows:
+            name = (row.get("name") or "").strip()
+            if not name:
+                skipped += 1
+                continue
+            db.session.add(Intern(
+                name=name,
+                domain=(row.get("domain") or "").strip(),
+                joining_date=(row.get("joining_date") or "").strip(),
+                status=(row.get("status") or "Active").strip(),
+                created_at=datetime.datetime.now().strftime("%b %d, %Y")
+            ))
+            created += 1
+        db.session.commit()
+        print(f"[bulk_interns] Committed {created} interns (skipped {skipped})")
+        return jsonify({"success": True, "created": created, "skipped": skipped})
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        print(f"[bulk_interns] ERROR: {e}")
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
 
 @app.route("/api/interns-roster", methods=["POST"])
