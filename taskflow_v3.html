@@ -3137,86 +3137,360 @@ async function deleteIntern(id) {
 
 // ── SPREADSHEET UPLOAD ─────────────────────────────────────
 async function handleProjectSpreadsheet(input) {
-  const file = input.files[0]; if (!file) return;
-  showToast('Parsing spreadsheet...');
-  const rows = await parseSpreadsheetFile(file);
-  if (!rows) { showToast('Could not parse file. Use .xlsx or .csv'); return; }
-  // Map columns: Project Name, Category, Client Name, Status, Start Date, Team Members, Description
-  const projects = rows.map(r => ({
-    name:         r['Project Name'] || r['project name'] || r['Name'] || '',
-    category:     r['Category'] || r['category'] || 'Government',
-    client_name:  r['Client Name'] || r['client name'] || r['Client'] || '',
-    status:       r['Status'] || r['status'] || 'Active',
-    start_date:   r['Start Date'] || r['start date'] || r['Date'] || '',
-    team_members: r['Team Members'] || r['team members'] || r['Team'] || '',
-    description:  r['Description'] || r['description'] || ''
-  })).filter(p => p.name);
-  if (!projects.length) { showToast('No valid project rows found'); return; }
+  const file = input.files[0];
+  if (!file) return;
+
+  // Reset input so same file can be re-uploaded if needed
+  const inputEl = input;
+
+  console.log('[UPLOAD] File selected:', file.name, 'size:', file.size, 'type:', file.type);
+
+  // Validate file extension
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx','xls','csv'].includes(ext)) {
+    showToast('❌ Unsupported file type. Use .xlsx, .xls, or .csv');
+    inputEl.value = '';
+    return;
+  }
+
+  showToast('⏳ Parsing spreadsheet...');
+
+  let rows;
+  try {
+    rows = await parseSpreadsheetFile(file);
+  } catch(err) {
+    console.error('[UPLOAD] parseSpreadsheetFile threw:', err);
+    showToast('❌ Could not read file. Ensure it is a valid Excel or CSV file.');
+    inputEl.value = '';
+    return;
+  }
+
+  if (!rows || !Array.isArray(rows)) {
+    showToast('❌ Could not parse file. Use .xlsx or .csv with correct columns.');
+    inputEl.value = '';
+    return;
+  }
+
+  if (rows.length === 0) {
+    showToast('❌ Spreadsheet is empty. Add project rows and try again.');
+    inputEl.value = '';
+    return;
+  }
+
+  console.log('[UPLOAD] Parsed', rows.length, 'rows. Columns:', Object.keys(rows[0]).join(', '));
+
+  // ── Case-insensitive column lookup helper ──────────────────
+  // Excel headers may be "Project Name", "project name", "PROJECT NAME", etc.
+  function colVal(row, ...candidates) {
+    const keyMap = {};
+    Object.keys(row).forEach(k => { keyMap[k.toLowerCase().trim()] = k; });
+    for (const c of candidates) {
+      const actualKey = keyMap[c.toLowerCase().trim()];
+      if (actualKey !== undefined) {
+        const v = row[actualKey];
+        if (v !== undefined && v !== null && String(v).trim() !== '') return String(v).trim();
+      }
+    }
+    return '';
+  }
+
+  // Validate at least one name-like column exists
+  const firstRow = rows[0];
+  const allKeys = Object.keys(firstRow).map(k => k.toLowerCase().trim());
+  const hasProjectName = allKeys.some(k => k.includes('project name') || k === 'name');
+  if (!hasProjectName) {
+    const found = Object.keys(firstRow).join(', ') || '(none)';
+    showToast(`❌ Missing "Project Name" column. Found: ${found}`);
+    console.error('[UPLOAD] Column mismatch. Expected "Project Name". Got:', found);
+    inputEl.value = '';
+    return;
+  }
+
+  // Map columns — fully case-insensitive
+  const VALID_CATEGORIES = ['Government', 'Private', 'B2C'];
+  let skipped = 0;
+  const projects = rows.map(r => {
+    const name   = colVal(r, 'Project Name', 'project name', 'Name', 'name', 'PROJECT NAME');
+    const catRaw = colVal(r, 'Category', 'category', 'CATEGORY', 'Type', 'type') || 'Government';
+    const normalizedCat = VALID_CATEGORIES.find(c => c.toLowerCase() === catRaw.toLowerCase()) || 'Government';
+    return {
+      name,
+      category:     normalizedCat,
+      client_name:  colVal(r, 'Client Name', 'client name', 'Client', 'client', 'CLIENT NAME'),
+      status:       colVal(r, 'Status', 'status', 'STATUS') || 'Active',
+      start_date:   colVal(r, 'Start Date', 'start date', 'StartDate', 'Date', 'date', 'START DATE'),
+      team_members: colVal(r, 'Team Members', 'team members', 'Team', 'team', 'Members', 'TEAM MEMBERS'),
+      description:  colVal(r, 'Description', 'description', 'Desc', 'desc', 'DESCRIPTION'),
+    };
+  }).filter(p => {
+    if (!p.name) { skipped++; return false; }
+    return true;
+  });
+
+  if (!projects.length) {
+    showToast('❌ No valid project rows found. Ensure "Project Name" column has values.');
+    inputEl.value = '';
+    return;
+  }
+
+  console.log('[UPLOAD] Sending', projects.length, 'projects to API. Skipped empty:', skipped);
+  showToast(`⏳ Uploading ${projects.length} projects...`);
+
   const res = await api('POST', '/projects/bulk', {projects});
+  inputEl.value = ''; // Reset file input regardless of outcome
+
   if (res?.success) {
-    showToast(`Synced ${res.created} projects from spreadsheet ✓`);
+    console.log('[UPLOAD] Bulk insert succeeded. Created:', res.created);
+    showToast(`✅ Synced ${res.created} project${res.created !== 1 ? 's' : ''} from spreadsheet!${skipped ? ` (${skipped} empty rows skipped)` : ''}`);
+
+    // Refresh project list from server (source of truth)
     const data = await api('GET', '/projects');
-    PGI_PROJECTS = data || [];
-    renderProjectCards();
-  } else { showToast('Sync failed'); }
+    PGI_PROJECTS = Array.isArray(data) ? data : [];
+
+    // Switch to first active tab that has data
+    const tabWithData = ['Government','Private','B2C'].find(cat => PGI_PROJECTS.some(p => p.category === cat));
+    if (tabWithData) switchProjectTab(tabWithData);
+    else renderProjectCards();
+
+    // Rebuild tab counts in mastermind header (re-render shell updates counts)
+    buildMastermindShell(document.getElementById('panel-mastermind'));
+
+    // Refresh dashboard stat counters without a full page reload
+    api('GET', '/dashboard-stats').then(stats => {
+      if (!stats) return;
+      const g = document.getElementById('dash-gov-cnt'); if (g) g.textContent = stats.projects.government;
+      const p = document.getElementById('dash-pvt-cnt'); if (p) p.textContent = stats.projects.private;
+      const b = document.getElementById('dash-b2c-cnt'); if (b) b.textContent = stats.projects.b2c;
+      console.log('[UPLOAD] Dashboard stats refreshed:', stats.projects);
+    });
+  } else {
+    const errMsg = res?.__error ? res.message : (res?.error || 'Unknown server error');
+    console.error('[UPLOAD] Bulk insert failed:', errMsg, res);
+    showToast('❌ Upload failed: ' + errMsg);
+  }
 }
 
 async function handleInternSpreadsheet(input) {
-  const file = input.files[0]; if (!file) return;
-  showToast('Parsing spreadsheet...');
-  const rows = await parseSpreadsheetFile(file);
-  if (!rows) { showToast('Could not parse file'); return; }
+  const file = input.files[0];
+  if (!file) return;
+
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx','xls','csv'].includes(ext)) {
+    showToast('❌ Unsupported file type. Use .xlsx, .xls, or .csv');
+    input.value = '';
+    return;
+  }
+
+  showToast('⏳ Parsing spreadsheet...');
+  console.log('[UPLOAD/Interns] File:', file.name, 'size:', file.size);
+
+  let rows;
+  try {
+    rows = await parseSpreadsheetFile(file);
+  } catch(err) {
+    console.error('[UPLOAD/Interns] Parse error:', err);
+    showToast('❌ Could not read file. Ensure it is a valid Excel or CSV file.');
+    input.value = '';
+    return;
+  }
+
+  if (!rows || !Array.isArray(rows) || rows.length === 0) {
+    showToast('❌ Could not parse file or file is empty.');
+    input.value = '';
+    return;
+  }
+
+  console.log('[UPLOAD/Interns] Parsed', rows.length, 'rows.');
+  let skipped = 0;
   const interns = rows.map(r => ({
-    name:         r['Intern Name'] || r['Name'] || r['name'] || '',
-    domain:       r['Domain'] || r['domain'] || '',
-    joining_date: r['Joining Date'] || r['joining_date'] || r['Date'] || '',
-    status:       r['Status'] || r['status'] || 'Active'
-  })).filter(i => i.name);
-  if (!interns.length) { showToast('No valid intern rows found'); return; }
+    name:         String(r['Intern Name'] || r['Name'] || r['name'] || '').trim(),
+    domain:       String(r['Domain'] || r['domain'] || '').trim(),
+    joining_date: String(r['Joining Date'] || r['joining_date'] || r['Date'] || '').trim(),
+    status:       String(r['Status'] || r['status'] || 'Active').trim()
+  })).filter(i => { if (!i.name) { skipped++; return false; } return true; });
+
+  if (!interns.length) {
+    showToast('❌ No valid intern rows found. Ensure "Name" or "Intern Name" column has values.');
+    input.value = '';
+    return;
+  }
+
+  showToast(`⏳ Uploading ${interns.length} interns...`);
   const res = await api('POST', '/interns-roster/bulk', {interns});
+  input.value = '';
+
   if (res?.success) {
-    showToast(`Synced ${res.created} interns from spreadsheet ✓`);
+    console.log('[UPLOAD/Interns] Synced:', res.created);
+    showToast(`✅ Synced ${res.created} intern${res.created !== 1 ? 's' : ''}!${skipped ? ` (${skipped} skipped)` : ''}`);
     const data = await api('GET', '/interns-roster');
     PGI_INTERNS = data?.interns || [];
     PGI_DOMAIN_COUNTS = data?.domain_counts || {};
     renderInternSection();
-  } else { showToast('Sync failed'); }
+    // Refresh dashboard intern count
+    api('GET', '/dashboard-stats').then(stats => {
+      if (!stats) return;
+      const i = document.getElementById('dash-intern-cnt'); if (i) i.textContent = stats.interns_roster.total;
+    });
+  } else {
+    const errMsg = res?.__error ? res.message : (res?.error || 'Unknown error');
+    console.error('[UPLOAD/Interns] Failed:', errMsg, res);
+    showToast('❌ Sync failed: ' + errMsg);
+  }
 }
 
 async function parseSpreadsheetFile(file) {
-  // Try CSV first
-  if (file.name.endsWith('.csv')) {
+  // RFC-4180 compliant CSV field parser (handles quoted fields with commas/newlines)
+  function parseCSVLine(line) {
+    const fields = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i+1] === '"') { cur += '"'; i++; } // escaped quote
+        else inQuotes = !inQuotes;
+      } else if (ch === ',' && !inQuotes) {
+        fields.push(cur.trim());
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    fields.push(cur.trim());
+    return fields;
+  }
+
+  if (file.name.toLowerCase().endsWith('.csv')) {
     return new Promise(resolve => {
       const reader = new FileReader();
+      reader.onerror = () => { console.error('[CSV] FileReader error'); resolve(null); };
       reader.onload = e => {
-        const lines = e.target.result.split('\n').filter(l => l.trim());
-        if (lines.length < 2) { resolve(null); return; }
-        const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g,'').trim());
-        const rows = lines.slice(1).map(line => {
-          const vals = line.split(',').map(v => v.replace(/^"|"$/g,'').trim());
-          const obj = {};
-          headers.forEach((h,i) => obj[h] = vals[i] || '');
-          return obj;
-        });
-        resolve(rows);
+        try {
+          // Strip BOM if present (Excel saves UTF-8 with BOM)
+          const text = e.target.result.replace(/^\uFEFF/, '');
+          const lines = text.split(/\r?\n/).filter(l => l.trim());
+          if (lines.length < 2) { console.warn('[CSV] Not enough rows:', lines.length); resolve(null); return; }
+          const headers = parseCSVLine(lines[0]);
+          console.log('[CSV] Headers:', headers);
+          const rows = lines.slice(1).map(line => {
+            const vals = parseCSVLine(line);
+            const obj = {};
+            headers.forEach((h, i) => obj[h] = vals[i] !== undefined ? vals[i] : '');
+            return obj;
+          });
+          console.log('[CSV] Parsed', rows.length, 'rows');
+          resolve(rows);
+        } catch(err) {
+          console.error('[CSV] Parse error:', err);
+          resolve(null);
+        }
       };
-      reader.readAsText(file);
+      reader.readAsText(file, 'utf-8');
     });
   }
-  // For XLSX — require SheetJS (loaded from CDN if available)
+  // For XLSX — wait for SheetJS to load (async, pre-loaded on page load)
+  try {
+    await ensureXLSX();
+  } catch(err) {
+    console.error('[XLSX] Cannot load SheetJS:', err);
+    showToast('❌ Could not load Excel parser. Check internet connection and retry.');
+    return null;
+  }
   if (typeof XLSX === 'undefined') {
-    showToast('For .xlsx support, use CSV format or ask your admin to load SheetJS');
+    showToast('❌ Excel parser not available. Please use .csv format instead.');
     return null;
   }
   return new Promise(resolve => {
     const reader = new FileReader();
     reader.onload = e => {
       try {
-        const wb = XLSX.read(e.target.result, {type:'array'});
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        resolve(XLSX.utils.sheet_to_json(ws, {defval:''}));
-      } catch { resolve(null); }
+        console.log('[XLSX] File size (bytes):', e.target.result.byteLength);
+
+        // Read workbook — cellDates:true converts date serials to JS Date objects
+        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true, cellNF: false });
+        console.log('[XLSX] Sheet names:', wb.SheetNames);
+
+        // ── DIAGNOSTIC: dump raw cell values of first 8 rows of each sheet ──
+        wb.SheetNames.forEach(sheetName => {
+          const ws2 = wb.Sheets[sheetName];
+          const rawAll = XLSX.utils.sheet_to_json(ws2, { header: 1, defval: '' });
+          console.log(`[XLSX] Sheet "${sheetName}" — total rows (including blank):`, rawAll.length);
+          console.log(`[XLSX] Sheet "${sheetName}" — first 8 raw rows:`, JSON.stringify(rawAll.slice(0, 8)));
+        });
+
+        // Find the sheet most likely to have project data
+        // Priority: sheet whose first non-blank row contains "Project Name" or "Name"
+        const TARGET_COLS = ['project name', 'name', 'category', 'client name', 'status'];
+        let bestSheet = wb.SheetNames[0];
+        let bestHeaderRow = 0; // 0-indexed row index of the header
+
+        for (const sheetName of wb.SheetNames) {
+          const ws2 = wb.Sheets[sheetName];
+          const rawRows = XLSX.utils.sheet_to_json(ws2, { header: 1, defval: '' });
+          for (let ri = 0; ri < Math.min(rawRows.length, 10); ri++) {
+            const rowLower = rawRows[ri].map(c => String(c).toLowerCase().trim());
+            const matchCount = TARGET_COLS.filter(tc => rowLower.some(cell => cell.includes(tc))).length;
+            if (matchCount >= 2) {
+              bestSheet = sheetName;
+              bestHeaderRow = ri;
+              console.log(`[XLSX] Header row found at row index ${ri} in sheet "${sheetName}". Match score: ${matchCount}`);
+              break;
+            }
+          }
+        }
+
+        const ws = wb.Sheets[bestSheet];
+        console.log('[XLSX] Using sheet:', bestSheet, '— header at row index:', bestHeaderRow);
+
+        // Get all rows as arrays (no header inference yet)
+        const rawRows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        console.log('[XLSX] Total raw rows in chosen sheet:', rawRows.length);
+
+        if (rawRows.length <= bestHeaderRow) {
+          console.warn('[XLSX] Sheet has no rows after the header row');
+          resolve([]);
+          return;
+        }
+
+        // Extract headers from the detected header row, normalize them
+        const headerRow = rawRows[bestHeaderRow].map(h => String(h).trim());
+        console.log('[XLSX] Detected headers:', JSON.stringify(headerRow));
+
+        // Build data rows from everything after the header row
+        const dataRows = rawRows.slice(bestHeaderRow + 1);
+        console.log('[XLSX] Data rows (after header):', dataRows.length);
+
+        // Convert to objects, skip rows where every cell is blank
+        const rows = [];
+        dataRows.forEach((rowArr, idx) => {
+          const obj = {};
+          headerRow.forEach((h, i) => {
+            let val = rowArr[i];
+            // Convert Date objects to YYYY-MM-DD string
+            if (val instanceof Date) {
+              val = val.toISOString().split('T')[0];
+            }
+            obj[h] = (val === undefined || val === null) ? '' : String(val).trim();
+          });
+          // Skip entirely blank rows
+          const hasData = Object.values(obj).some(v => v !== '');
+          if (hasData) rows.push(obj);
+        });
+
+        console.log('[XLSX] Final usable rows:', rows.length);
+        if (rows.length > 0) {
+          console.log('[XLSX] Column keys:', Object.keys(rows[0]));
+          console.log('[XLSX] First 5 rows:', JSON.stringify(rows.slice(0, 5)));
+        } else {
+          console.warn('[XLSX] All data rows were blank after filtering');
+        }
+
+        resolve(rows);
+      } catch(err) {
+        console.error('[XLSX] Parse error:', err);
+        resolve(null);
+      }
     };
+    reader.onerror = (err) => { console.error('[XLSX] FileReader error:', err); resolve(null); };
     reader.readAsArrayBuffer(file);
   });
 }
@@ -3246,12 +3520,22 @@ function downloadCSV(rows, filename) {
   showToast('CSV downloaded ✓');
 }
 
-// Load SheetJS for XLSX support
-(function(){
-  const s = document.createElement('script');
-  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-  document.head.appendChild(s);
-})();
+// Load SheetJS for XLSX support — async with load promise
+let _xlsxLoadPromise = null;
+function ensureXLSX() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve(true);
+  if (_xlsxLoadPromise) return _xlsxLoadPromise;
+  _xlsxLoadPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload  = () => { console.log('[XLSX] SheetJS loaded successfully'); resolve(true); };
+    s.onerror = () => { console.error('[XLSX] Failed to load SheetJS from CDN'); reject(new Error('SheetJS CDN load failed')); };
+    document.head.appendChild(s);
+  });
+  return _xlsxLoadPromise;
+}
+// Pre-load immediately so it's ready when user clicks Upload
+ensureXLSX().catch(() => {});
 </script>
 </body>
 </html>
