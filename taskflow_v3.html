@@ -1036,7 +1036,7 @@ async function initApp() {
   document.getElementById('user-avatar').textContent   = currentUser.initials || '?';
   document.getElementById('user-avatar').style.background = `linear-gradient(135deg,${c}99,${c})`;
   document.getElementById('user-name').textContent     = currentUser.name;
-  document.getElementById('user-role-lbl').textContent = currentUser.role === 'founder' ? 'Founder' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
+  document.getElementById('user-role-lbl').textContent = currentUser.role === 'founder' ? 'Founder & CEO' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
 
   document.querySelectorAll('.founder-only').forEach(el => { el.style.display = currentUser.role === 'founder' ? '' : 'none'; });
 
@@ -2176,19 +2176,27 @@ document.addEventListener('DOMContentLoaded',()=>{
 });
 
 // ═══════════════════════════════════════════════════════════
-// USER MANAGEMENT
+// USER MANAGEMENT  (fully self-contained, no external form div)
 // ═══════════════════════════════════════════════════════════
+
+let _addUserFormOpen = false;
+
 function renderUsersList() {
   const container = document.getElementById('panel-users');
   if (!container) return;
+
+  console.log('[renderUsersList] called, formOpen=', _addUserFormOpen);
+
+  const activeTab   = container.dataset.tab || 'employees';
   const nonFounders = ALL_USERS.filter(u => u.role !== 'founder');
   const employees   = nonFounders.filter(u => u.role === 'employee' || u.role === 'trainer');
   const interns     = nonFounders.filter(u => u.role === 'intern');
+  const members     = activeTab === 'interns' ? interns : employees;
 
   const userRow = (u) => {
-    const c = ac(u.id);
+    const c        = ac(u.id);
     const teamName = TEAM_CONFIG.find(t => t.id === u.team)?.name || (u.team || '—');
-    const domain = u.domain || u.specialty || '—';
+    const domain   = u.domain || u.specialty || '—';
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:14px;margin-bottom:8px;flex-wrap:wrap">
       <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c})">${u.initials}</div>
       <div style="flex:1;min-width:140px">
@@ -2201,11 +2209,70 @@ function renderUsersList() {
         <span class="badge badge-gray" style="font-size:10px">${u.role === 'intern' ? domain : teamName}</span>
         ${u.phone ? `<span style="font-size:10px;color:#25D366">📱 ${u.phone}</span>` : ''}
       </div>
-      <button class="btn-tiny reject" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="deleteUser('${u.id}','${u.name}')">Remove</button>
+      <button class="btn-tiny reject" style="font-size:11px;padding:5px 10px;flex-shrink:0"
+        onclick="deleteUser('${u.id}','${u.name}')">Remove</button>
     </div>`;
   };
 
-  const addFormSection = container.querySelector('#add-user-form-section') ? '' : `
+  const teamOptions = TEAM_CONFIG.map(t =>
+    `<option value="${t.id}">${t.name}</option>`
+  ).join('');
+
+  const addFormHTML = `
+    <div id="inline-add-user-form" style="display:${_addUserFormOpen ? 'block' : 'none'};margin-bottom:20px">
+      <div class="assign-card">
+        <h3 style="font-size:17px;margin-bottom:16px">Add New User</h3>
+        <div class="form-row">
+          <div class="form-field"><label>Full Name</label>
+            <input type="text" id="nu-name" placeholder="Full name"></div>
+          <div class="form-field"><label>Email</label>
+            <input type="email" id="nu-email" placeholder="email@company.com"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-field"><label>Role</label>
+            <select id="nu-role" onchange="toggleInlineTeamField()">
+              <option value="employee">Employee</option>
+              <option value="intern">Intern</option>
+              <option value="trainer">Trainer</option>
+            </select>
+          </div>
+          <div class="form-field" id="nu-team-field-inline">
+            <label>Team</label>
+            <select id="nu-team">${teamOptions}</select>
+          </div>
+        </div>
+        <div class="form-field" id="nu-specialty-field-inline" style="display:none">
+          <label>Specialty</label>
+          <input type="text" id="nu-specialty" placeholder="e.g. Leadership, Data Analytics">
+        </div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>Domain (for interns)</label>
+            <select id="nu-domain">
+              <option value="">—</option>
+              <option>Data Analyst</option>
+              <option>Java Developer</option>
+              <option>Python Developer</option>
+              <option>Full Stack Developer</option>
+              <option>UI/UX Designer</option>
+              <option>Digital Marketing</option>
+            </select>
+          </div>
+          <div class="form-field"><label>Joining Date</label>
+            <input type="date" id="nu-joining"></div>
+        </div>
+        <div class="form-field"><label>Password</label>
+          <input type="password" id="nu-pass" placeholder="Default: emp2025"></div>
+        <div class="form-field"><label>WhatsApp Number</label>
+          <input type="tel" id="nu-phone" placeholder="+91XXXXXXXXXX"></div>
+        <div class="assign-actions">
+          <button class="btn-sm btn-gold" onclick="createUser()">Create User</button>
+          <button class="btn-sm btn-outline" onclick="hideAddUserForm()">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+
+  container.innerHTML = `<div style="max-width:640px">
     <div class="section-header" style="margin-bottom:20px">
       <div style="display:flex;gap:10px;align-items:center">
         <span class="badge badge-green">Employees: ${employees.length}</span>
@@ -2213,31 +2280,59 @@ function renderUsersList() {
       </div>
       <button class="btn-sm btn-gold" onclick="showAddUserForm()">+ Add User</button>
     </div>
-    <div id="add-user-form-section"></div>`;
-
-  // Tab state
-  const activeTab = container.dataset.tab || 'employees';
-
-  container.innerHTML = `<div style="max-width:640px">
-    ${addFormSection}
-    <div style="display:flex;background:var(--surface2);border-radius:var(--radius-sm);padding:4px;margin-bottom:20px;gap:4px">
-      <div onclick="switchUsersTab('employees')" style="flex:1;padding:9px;text-align:center;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.15s;${activeTab==='employees'?'background:var(--surface3);color:var(--text);border:1px solid var(--border)':'color:var(--text2)'}">
+    ${addFormHTML}
+    <div style="display:flex;background:var(--surface2);border-radius:var(--radius-sm);
+        padding:4px;margin-bottom:20px;gap:4px">
+      <div onclick="switchUsersTab('employees')"
+        style="flex:1;padding:9px;text-align:center;border-radius:6px;font-size:13px;
+        font-weight:500;cursor:pointer;transition:all 0.15s;
+        ${activeTab==='employees'
+          ? 'background:var(--surface3);color:var(--text);border:1px solid var(--border)'
+          : 'color:var(--text2)'}">
         👔 Full-Time Employees <span style="font-size:11px;color:var(--text3)">(${employees.length})</span>
       </div>
-      <div onclick="switchUsersTab('interns')" style="flex:1;padding:9px;text-align:center;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.15s;${activeTab==='interns'?'background:var(--surface3);color:var(--text);border:1px solid var(--border)':'color:var(--text2)'}">
+      <div onclick="switchUsersTab('interns')"
+        style="flex:1;padding:9px;text-align:center;border-radius:6px;font-size:13px;
+        font-weight:500;cursor:pointer;transition:all 0.15s;
+        ${activeTab==='interns'
+          ? 'background:var(--surface3);color:var(--text);border:1px solid var(--border)'
+          : 'color:var(--text2)'}">
         🎓 Interns <span style="font-size:11px;color:var(--text3)">(${interns.length})</span>
       </div>
     </div>
     <div id="users-list">
-      ${activeTab === 'employees'
-        ? (employees.map(userRow).join('') || '<div class="empty-state"><div class="e-icon">👔</div><p>No employees yet.</p></div>')
-        : (interns.map(userRow).join('')   || '<div class="empty-state"><div class="e-icon">🎓</div><p>No interns yet.</p></div>')}
+      ${members.length
+        ? members.map(userRow).join('')
+        : `<div class="empty-state"><div class="e-icon">${activeTab==='interns'?'🎓':'👔'}</div>
+           <p>No ${activeTab} yet. Click "+ Add User" to get started.</p></div>`}
     </div>
   </div>`;
 
-  // Re-attach add-user-form logic if visible
-  const savedForm = document.getElementById('add-user-form');
-  if (savedForm) container.querySelector('#add-user-form-section')?.append(savedForm);
+  console.log('[renderUsersList] done. form el:', !!document.getElementById('inline-add-user-form'));
+}
+
+function showAddUserForm() {
+  console.log('[showAddUserForm] opening form');
+  _addUserFormOpen = true;
+  renderUsersList();
+  setTimeout(() => {
+    document.getElementById('inline-add-user-form')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 50);
+}
+
+function hideAddUserForm() {
+  console.log('[hideAddUserForm] closing form');
+  _addUserFormOpen = false;
+  renderUsersList();
+}
+
+function toggleInlineTeamField() {
+  const role    = document.getElementById('nu-role')?.value;
+  const teamFld = document.getElementById('nu-team-field-inline');
+  const specFld = document.getElementById('nu-specialty-field-inline');
+  if (teamFld) teamFld.style.display = (role === 'employee' || role === 'intern') ? '' : 'none';
+  if (specFld) specFld.style.display = role === 'trainer' ? '' : 'none';
 }
 
 function switchUsersTab(tab) {
@@ -2246,67 +2341,98 @@ function switchUsersTab(tab) {
   renderUsersList();
 }
 
-function showAddUserForm() {
-  const f = document.getElementById('add-user-form');
-  if (!f) return;
-  f.style.display = f.style.display === 'none' ? 'block' : 'none';
-  renderTeamSelect();
-}
-
-function renderTeamSelect() {
-  const sel=document.getElementById('nu-team'); if(!sel) return;
-  sel.innerHTML='<option value="">Select team...</option>'+TEAM_CONFIG.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-}
-
-function toggleTeamField() {
-  const role=document.getElementById('nu-role').value;
-  document.getElementById('nu-team-field').style.display=(role==='employee'||role==='intern')?'':'none';
-  document.getElementById('nu-specialty-field').style.display=role==='trainer'?'':'none';
-}
-
 async function createUser() {
-  const name=document.getElementById('nu-name').value.trim(),
-        email=document.getElementById('nu-email').value.trim(),
-        role=document.getElementById('nu-role').value,
-        team=document.getElementById('nu-team').value,
-        spec=document.getElementById('nu-specialty').value.trim(),
-        pass=document.getElementById('nu-pass').value.trim()||'emp2025',
-        phone=document.getElementById('nu-phone').value.trim(),
-        domain=document.getElementById('nu-domain')?.value.trim()||'',
-        joining=document.getElementById('nu-joining')?.value||'';
+  console.log('[createUser] called');
 
-  if (!name||!email){showToast('Please enter name and email');return;}
+  const name    = document.getElementById('nu-name')?.value.trim()   || '';
+  const email   = document.getElementById('nu-email')?.value.trim()  || '';
+  const role    = document.getElementById('nu-role')?.value          || 'employee';
+  const team    = document.getElementById('nu-team')?.value          || '';
+  const spec    = document.getElementById('nu-specialty')?.value?.trim() || '';
+  const pass    = document.getElementById('nu-pass')?.value.trim()   || 'emp2025';
+  const phone   = document.getElementById('nu-phone')?.value.trim()  || '';
+  const domain  = document.getElementById('nu-domain')?.value?.trim() || '';
+  const joining = document.getElementById('nu-joining')?.value       || '';
 
-  const res=await api('POST','/users',{
-    name, email, role,
-    team:(role==='employee'||role==='intern')?team:null,
-    specialty:role==='trainer'?spec:null,
-    password:pass,
-    phone:phone||null,
-    domain:domain||null,
-    joining_date:joining||null
-  });
+  console.log('[createUser] values:', { name, email, role, team, domain });
 
-  if (res?.error||res?.__error){showToast(res.error||res.message);return;}
-  if (res?.user) ALL_USERS.push(res.user);
+  if (!name)  { showToast('⚠ Please enter a full name');     return; }
+  if (!email) { showToast('⚠ Please enter an email address'); return; }
 
-  if (role === 'trainer' && res?.user?.id) {
-    await assignTrainerDailyTasks(res.user.id);
-    showToast(`Trainer ${name} added ✓ — daily task assigned automatically!`);
-  } else {
-    showToast(`User ${name} added ✓`);
+  const btn = document.querySelector('#inline-add-user-form .btn-gold');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
+
+  try {
+    const payload = {
+      name, email, role,
+      team:         (role === 'employee' || role === 'intern') ? (team || null) : null,
+      specialty:    role === 'trainer' ? (spec || null) : null,
+      password:     pass || 'emp2025',
+      phone:        phone  || null,
+      domain:       domain || null,
+      joining_date: joining || null
+    };
+    console.log('[createUser] → POST /api/users', payload);
+
+    const res = await api('POST', '/users', payload);
+    console.log('[createUser] ← response:', res);
+
+    if (!res) {
+      showToast('❌ No response from server — is the backend running?');
+      return;
+    }
+    if (res.__error || res.error) {
+      showToast('❌ ' + (res.message || res.error || 'Failed to create user'));
+      return;
+    }
+    if (!res.user) {
+      showToast('❌ Unexpected server response — check console');
+      console.error('[createUser] unexpected response structure:', res);
+      return;
+    }
+
+    // Persist in local state
+    ALL_USERS.push(res.user);
+    console.log('[createUser] ✓ added to ALL_USERS. Total:', ALL_USERS.length);
+
+    if (role === 'trainer' && res.user?.id) {
+      await assignTrainerDailyTasks(res.user.id);
+      showToast(`✅ Trainer "${name}" added! Daily task assigned automatically.`);
+    } else {
+      showToast(`✅ User "${name}" created successfully!`);
+    }
+
+    _addUserFormOpen = false;
+    renderUsersList();
+    populateMemberSelect();
+    renderChannelTabs();
+
+  } catch (err) {
+    console.error('[createUser] exception:', err);
+    showToast('❌ Error: ' + err.message);
+  } finally {
+    const btn2 = document.querySelector('#inline-add-user-form .btn-gold');
+    if (btn2) { btn2.disabled = false; btn2.textContent = 'Create User'; }
   }
-
-  document.getElementById('add-user-form').style.display='none';
-  ['nu-name','nu-email','nu-pass','nu-specialty','nu-phone'].forEach(id=>document.getElementById(id).value='');
-  renderUsersList(); populateMemberSelect(); renderChannelTabs();
 }
 
-async function deleteUser(uid,name) {
-  if (!confirm(`Remove ${name}? This cannot be undone.`)) return;
-  const res=await api('DELETE',`/users/${uid}`);
-  if (res?.success){ALL_USERS=ALL_USERS.filter(u=>u.id!==uid);renderUsersList();populateMemberSelect();showToast(`${name} removed`);}
+async function deleteUser(uid, name) {
+  if (!confirm(`Remove "${name}"? This cannot be undone.`)) return;
+  console.log('[deleteUser] uid=', uid);
+  const res = await api('DELETE', `/users/${uid}`);
+  if (res?.success) {
+    ALL_USERS = ALL_USERS.filter(u => u.id !== uid);
+    renderUsersList();
+    populateMemberSelect();
+    showToast(`"${name}" removed`);
+  } else {
+    showToast('❌ Remove failed: ' + (res?.error || 'Unknown'));
+  }
 }
+
+// Legacy stubs — kept so other call sites don't break
+function renderTeamSelect() { /* now inline in renderUsersList */ }
+function toggleTeamField()  { toggleInlineTeamField(); }
 
 // ═══════════════════════════════════════════════════════════
 // RATINGS
