@@ -70,6 +70,9 @@ class User(db.Model):
     team        = db.Column(db.String(100))
     specialty   = db.Column(db.String(100))
     phone       = db.Column(db.String(30))
+    department  = db.Column(db.String(100))
+    domain      = db.Column(db.String(100))   # for interns: Data Analyst, Java Dev, etc.
+    joining_date = db.Column(db.String(50))
 
 
 class Task(db.Model):
@@ -144,6 +147,29 @@ class Rating(db.Model):
     note       = db.Column(db.Text)
 
 
+class Project(db.Model):
+    __tablename__ = "projects"
+    id           = db.Column(db.Integer, primary_key=True)
+    name         = db.Column(db.String(300), nullable=False)
+    category     = db.Column(db.String(50), nullable=False)   # Government / Private / B2C
+    client_name  = db.Column(db.String(200))
+    status       = db.Column(db.String(50))
+    start_date   = db.Column(db.String(50))
+    team_members = db.Column(db.Text)   # comma-separated names
+    description  = db.Column(db.Text)
+    created_at   = db.Column(db.String(100))
+
+
+class Intern(db.Model):
+    __tablename__ = "interns_roster"
+    id           = db.Column(db.Integer, primary_key=True)
+    name         = db.Column(db.String(200), nullable=False)
+    domain       = db.Column(db.String(100))
+    joining_date = db.Column(db.String(50))
+    status       = db.Column(db.String(50))   # Active / Inactive
+    created_at   = db.Column(db.String(100))
+
+
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
@@ -177,6 +203,9 @@ with app.app_context():
             "ALTER TABLE messages    ADD COLUMN channel   VARCHAR(100) DEFAULT 'all'",
             "ALTER TABLE attendance  ADD COLUMN date      VARCHAR(20)",
             "ALTER TABLE morning_messages ADD COLUMN date VARCHAR(20)",
+            "ALTER TABLE users ADD COLUMN department VARCHAR(100)",
+            "ALTER TABLE users ADD COLUMN domain VARCHAR(100)",
+            "ALTER TABLE users ADD COLUMN joining_date VARCHAR(50)",
         ]
         for sql in migrations:
             try:
@@ -371,7 +400,8 @@ def get_users():
         "id": u.id, "email": u.email, "role": u.role,
         "name": u.name, "initials": u.initials,
         "team": u.team, "specialty": u.specialty,
-        "phone": u.phone
+        "phone": u.phone, "department": u.department,
+        "domain": u.domain, "joining_date": u.joining_date
     } for u in User.query.all()])
 
 
@@ -400,7 +430,10 @@ def create_user():
         initials=initials,
         team=data.get("team"),
         specialty=data.get("specialty"),
-        phone=(data.get("phone") or "").strip() or None
+        phone=(data.get("phone") or "").strip() or None,
+        department=(data.get("department") or "").strip() or None,
+        domain=(data.get("domain") or "").strip() or None,
+        joining_date=(data.get("joining_date") or "").strip() or None
     )
     db.session.add(user)
     db.session.commit()
@@ -408,7 +441,8 @@ def create_user():
         "id": user.id, "name": user.name, "email": user.email,
         "role": user.role, "initials": user.initials,
         "team": user.team, "specialty": user.specialty,
-        "phone": user.phone
+        "phone": user.phone, "department": user.department,
+        "domain": user.domain, "joining_date": user.joining_date
     }})
 
 
@@ -1037,6 +1071,292 @@ def home():
 # ─────────────────────────────────────────────
 # RUN
 # ─────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────
+# RATINGS — RESET (founder only)
+# ─────────────────────────────────────────────
+
+@app.route("/api/ratings/reset", methods=["POST"])
+@jwt_required()
+def reset_ratings():
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    count = Rating.query.count()
+    Rating.query.delete()
+    db.session.commit()
+    return jsonify({"success": True, "deleted": count})
+
+
+# ─────────────────────────────────────────────
+# PROJECTS — CRUD (founder manages, all can read)
+# ─────────────────────────────────────────────
+
+def project_to_dict(p):
+    return {
+        "id": p.id, "name": p.name, "category": p.category,
+        "client_name": p.client_name, "status": p.status,
+        "start_date": p.start_date,
+        "team_members": p.team_members,
+        "description": p.description,
+        "created_at": p.created_at
+    }
+
+
+@app.route("/api/projects")
+@jwt_required()
+def get_projects():
+    category = request.args.get("category")
+    q = Project.query
+    if category:
+        q = q.filter_by(category=category)
+    return jsonify([project_to_dict(p) for p in q.order_by(Project.id.desc()).all()])
+
+
+@app.route("/api/projects", methods=["POST"])
+@jwt_required()
+def create_project():
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json() or {}
+    cat = data.get("category", "").strip()
+    if cat not in ("Government", "Private", "B2C"):
+        return jsonify({"error": "category must be Government, Private or B2C"}), 400
+    p = Project(
+        name=data.get("name", "").strip(),
+        category=cat,
+        client_name=data.get("client_name", "").strip(),
+        status=data.get("status", "Active").strip(),
+        start_date=data.get("start_date", "").strip(),
+        team_members=data.get("team_members", "").strip(),
+        description=data.get("description", "").strip(),
+        created_at=datetime.datetime.now().strftime("%b %d, %Y")
+    )
+    db.session.add(p)
+    db.session.commit()
+    return jsonify({"success": True, "project": project_to_dict(p)})
+
+
+@app.route("/api/projects/bulk", methods=["POST"])
+@jwt_required()
+def bulk_projects():
+    """Replace all projects with a new set (for spreadsheet sync)."""
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json() or {}
+    rows = data.get("projects", [])
+    Project.query.delete()
+    created = 0
+    for row in rows:
+        cat = (row.get("category") or "").strip()
+        if cat not in ("Government", "Private", "B2C"):
+            continue
+        name = (row.get("name") or "").strip()
+        if not name:
+            continue
+        db.session.add(Project(
+            name=name, category=cat,
+            client_name=(row.get("client_name") or "").strip(),
+            status=(row.get("status") or "Active").strip(),
+            start_date=(row.get("start_date") or "").strip(),
+            team_members=(row.get("team_members") or "").strip(),
+            description=(row.get("description") or "").strip(),
+            created_at=datetime.datetime.now().strftime("%b %d, %Y")
+        ))
+        created += 1
+    db.session.commit()
+    return jsonify({"success": True, "created": created})
+
+
+@app.route("/api/projects/<int:pid>", methods=["PUT"])
+@jwt_required()
+def update_project(pid):
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    p = db.session.get(Project, pid)
+    if not p:
+        return jsonify({"error": "Not found"}), 404
+    data = request.get_json() or {}
+    for field in ("name", "category", "client_name", "status", "start_date", "team_members", "description"):
+        if field in data:
+            setattr(p, field, (data[field] or "").strip())
+    db.session.commit()
+    return jsonify({"success": True, "project": project_to_dict(p)})
+
+
+@app.route("/api/projects/<int:pid>", methods=["DELETE"])
+@jwt_required()
+def delete_project(pid):
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    p = db.session.get(Project, pid)
+    if not p:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(p)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+# ─────────────────────────────────────────────
+# INTERNS ROSTER — CRUD
+# ─────────────────────────────────────────────
+
+def intern_to_dict(i):
+    return {
+        "id": i.id, "name": i.name, "domain": i.domain,
+        "joining_date": i.joining_date, "status": i.status,
+        "created_at": i.created_at
+    }
+
+
+@app.route("/api/interns-roster")
+@jwt_required()
+def get_interns_roster():
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    interns = Intern.query.order_by(Intern.id.desc()).all()
+    # Aggregate domain counts
+    domain_counts = {}
+    for i in interns:
+        d = i.domain or "Unknown"
+        domain_counts[d] = domain_counts.get(d, 0) + 1
+    return jsonify({
+        "interns": [intern_to_dict(i) for i in interns],
+        "total": len(interns),
+        "domain_counts": domain_counts
+    })
+
+
+@app.route("/api/interns-roster/bulk", methods=["POST"])
+@jwt_required()
+def bulk_interns():
+    """Replace all interns roster with new set (spreadsheet sync)."""
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json() or {}
+    rows = data.get("interns", [])
+    Intern.query.delete()
+    created = 0
+    for row in rows:
+        name = (row.get("name") or "").strip()
+        if not name:
+            continue
+        db.session.add(Intern(
+            name=name,
+            domain=(row.get("domain") or "").strip(),
+            joining_date=(row.get("joining_date") or "").strip(),
+            status=(row.get("status") or "Active").strip(),
+            created_at=datetime.datetime.now().strftime("%b %d, %Y")
+        ))
+        created += 1
+    db.session.commit()
+    return jsonify({"success": True, "created": created})
+
+
+@app.route("/api/interns-roster", methods=["POST"])
+@jwt_required()
+def add_intern():
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json() or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Name required"}), 400
+    i = Intern(
+        name=name,
+        domain=(data.get("domain") or "").strip(),
+        joining_date=(data.get("joining_date") or "").strip(),
+        status=(data.get("status") or "Active").strip(),
+        created_at=datetime.datetime.now().strftime("%b %d, %Y")
+    )
+    db.session.add(i)
+    db.session.commit()
+    return jsonify({"success": True, "intern": intern_to_dict(i)})
+
+
+@app.route("/api/interns-roster/<int:iid>", methods=["DELETE"])
+@jwt_required()
+def delete_intern_roster(iid):
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+    i = db.session.get(Intern, iid)
+    if not i:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(i)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+# ─────────────────────────────────────────────
+# DASHBOARD STATS
+# ─────────────────────────────────────────────
+
+@app.route("/api/dashboard-stats")
+@jwt_required()
+def dashboard_stats():
+    caller = db.session.get(User, get_jwt_identity())
+    if caller.role != "founder":
+        return jsonify({"error": "Forbidden"}), 403
+
+    # Project counts
+    gov_count     = Project.query.filter_by(category="Government").count()
+    private_count = Project.query.filter_by(category="Private").count()
+    b2c_count     = Project.query.filter_by(category="B2C").count()
+
+    # User breakdowns
+    employees = User.query.filter_by(role="employee").all()
+    interns   = User.query.filter_by(role="intern").all()
+
+    # Intern domain breakdown from interns_roster
+    intern_roster = Intern.query.all()
+    domain_counts = {}
+    for i in intern_roster:
+        d = i.domain or "Unknown"
+        domain_counts[d] = domain_counts.get(d, 0) + 1
+
+    # Rating summaries
+    today = today_str()
+    today_ratings = Rating.query.filter_by(date=today).all()
+    emp_ids   = {u.id for u in employees}
+    intern_ids = {u.id for u in interns}
+
+    emp_ratings    = [r for r in today_ratings if r.userId in emp_ids]
+    intern_ratings = [r for r in today_ratings if r.userId in intern_ids]
+
+    def avg(lst): return round(sum(r.score for r in lst) / len(lst), 1) if lst else 0
+
+    return jsonify({
+        "projects": {
+            "government": gov_count,
+            "private": private_count,
+            "b2c": b2c_count,
+            "total": gov_count + private_count + b2c_count
+        },
+        "users": {
+            "total_employees": len(employees),
+            "total_interns": len(interns)
+        },
+        "interns_roster": {
+            "total": len(intern_roster),
+            "domain_counts": domain_counts
+        },
+        "ratings": {
+            "emp_avg": avg(emp_ratings),
+            "intern_avg": avg(intern_ratings),
+            "emp_rated_today": len(emp_ratings),
+            "intern_rated_today": len(intern_ratings)
+        }
+    })
+
 
 if __name__ == "__main__":
     print("=" * 50)
