@@ -72,6 +72,8 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .notif-item.proof{border-left:3px solid var(--blue)}
 .notif-item.morning{border-left:3px solid #FBBF24}
 .notif-item.message{border-left:3px solid var(--text3)}
+.notif-item.motivation{border-left:3px solid #A78BFA}
+.notif-item.birthday{border-left:3px solid #F472B6}
 .notif-item-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px}
 .notif-item-body{font-size:12px;color:var(--text2);line-height:1.5}
 .notif-item-time{font-size:10px;color:var(--text3);margin-top:6px}
@@ -143,6 +145,49 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .dot{width:7px;height:7px;border-radius:50%;display:inline-block}
 .dot-green{background:var(--green)}.dot-gold{background:var(--gold)}.dot-red{background:var(--red)}.dot-blue{background:var(--blue)}
 
+/* ── VISIONBOARD CARDS ─── */
+.vb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:28px}
+@media(max-width:600px){.vb-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:400px){.vb-grid{grid-template-columns:1fr}}
+.vb-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  padding:20px 18px 16px;position:relative;overflow:hidden;
+  transition:border-color 0.2s,transform 0.2s,box-shadow 0.2s;
+}
+.vb-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--vb-accent,rgba(34,197,94,0.5)),transparent)}
+.vb-card:hover{border-color:var(--border2);transform:translateY(-3px);box-shadow:0 10px 32px rgba(0,0,0,0.28)}
+.vb-card.clickable{cursor:pointer}
+.vb-label{font-size:10px;font-weight:700;letter-spacing:0.7px;text-transform:uppercase;color:var(--text3);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.vb-value{font-family:'DM Serif Display',serif;font-size:2rem;font-weight:400;color:var(--text);line-height:1;margin-bottom:4px}
+.vb-fraction{font-family:'DM Serif Display',serif;font-size:1.5rem;color:var(--text);line-height:1;margin-bottom:4px}
+.vb-fraction span{color:var(--text3);font-size:1.1rem}
+.vb-goal-bar{width:100%;height:4px;background:var(--surface3);border-radius:2px;margin:10px 0 6px;overflow:hidden}
+.vb-goal-bar-fill{height:100%;border-radius:2px;background:var(--vb-accent,var(--green));transition:width 0.6s ease}
+.vb-sub{font-size:10px;color:var(--text3)}
+.vb-edit-btn{position:absolute;top:10px;right:10px;background:none;border:none;cursor:pointer;color:var(--text3);font-size:13px;padding:3px 6px;border-radius:6px;transition:background 0.15s,color 0.15s}
+.vb-edit-btn:hover{background:var(--surface2);color:var(--text)}
+/* Project expand list inside vb-card */
+.vb-proj-list{margin-top:12px;display:none;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto}
+.vb-proj-list.open{display:flex}
+.vb-proj-row{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;display:flex;flex-direction:column;gap:3px}
+.vb-proj-name{font-size:12px;font-weight:600;color:var(--text);line-height:1.3}
+.vb-proj-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.vb-proj-pct{font-size:11px;color:var(--gold2);font-weight:600}
+.vb-proj-status{font-size:10px;padding:2px 8px;border-radius:10px;font-weight:700;letter-spacing:0.4px}
+.vb-proj-team{font-size:10px;color:var(--text3)}
+.vb-expand-arrow{font-size:10px;transition:transform 0.2s;display:inline-block;margin-left:4px}
+/* VB Goals edit modal */
+#vb-goals-modal{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px)}
+#vb-goals-modal.open{display:flex}
+.vb-goals-box{background:var(--surface);border:1px solid var(--border2);border-radius:18px;padding:28px 28px 22px;width:100%;max-width:400px;position:relative;box-shadow:0 24px 60px rgba(0,0,0,0.5)}
+.vb-goals-box h3{font-family:'DM Serif Display',serif;font-size:1.15rem;color:var(--text);margin:0 0 18px}
+.vb-goal-row{display:flex;flex-direction:column;gap:4px;margin-bottom:13px}
+.vb-goal-row label{font-size:10px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text3)}
+.vb-goal-row input{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-size:13px;color:var(--text);width:100%;box-sizing:border-box;transition:border-color 0.15s}
+.vb-goal-row input:focus{outline:none;border-color:rgba(34,197,94,0.5)}
+.vb-goals-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+.vb-goals-close{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:4px}
+
 /* MORNING BANNER */
 .morning-banner{background:linear-gradient(135deg,rgba(34,197,94,0.08),rgba(34,197,94,0.03));border:1px solid rgba(34,197,94,0.25);border-radius:var(--radius);padding:18px 22px;margin-bottom:22px;position:relative;overflow:hidden;display:none}
 .morning-banner::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--gold3),var(--gold),var(--gold3))}
@@ -197,6 +242,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .btn-tiny.reject:hover{background:rgba(231,76,60,0.15)}
 .btn-tiny.form-btn{background:rgba(56,189,248,0.1);border-color:rgba(56,189,248,0.3);color:#7EB8F5}
 .btn-tiny.form-btn:hover{background:rgba(56,189,248,0.2)}
+.btn-tiny.danger{background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.28);color:#F87171;transition:all 0.18s}
+.btn-tiny.danger:hover{background:rgba(239,68,68,0.18);border-color:rgba(239,68,68,0.5);color:#ef4444;transform:scale(1.03)}
+.btn-tiny.danger:active{transform:scale(0.97)}
+.btn-tiny.danger:disabled{opacity:0.35;cursor:default;transform:none}
 
 /* DAILY TASK BADGE */
 .daily-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:20px;padding:2px 10px;font-size:10px;font-weight:600;color:#FBBF24;margin-bottom:8px}
@@ -260,6 +309,28 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .ring-m-box:hover{border-color:var(--border2)}
 .ring-m-val{font-size:13px;font-weight:600;color:var(--text);line-height:1;font-family:'DM Serif Display',serif}
 .ring-m-lbl{font-size:8px;color:var(--text3);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;text-align:center;line-height:1.2}
+
+/* ── CARD ACTIONS ─── */
+.ring-card-actions{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:4px;flex-wrap:wrap}
+.ring-card-upload{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:0.4px;cursor:pointer;border:1px solid rgba(34,197,94,0.35);background:rgba(34,197,94,0.07);color:var(--gold2);transition:background 0.15s,border-color 0.15s;white-space:nowrap}
+.ring-card-upload:hover{background:rgba(34,197,94,0.13);border-color:rgba(34,197,94,0.55)}
+.ring-card-edit{padding:5px 11px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:0.4px;cursor:pointer;border:1px solid rgba(99,130,255,0.35);background:rgba(99,130,255,0.07);color:#7C9FFF;transition:background 0.15s,border-color 0.15s;white-space:nowrap}
+.ring-card-edit:hover{background:rgba(99,130,255,0.14);border-color:rgba(99,130,255,0.55)}
+.ring-card-del{padding:5px 11px;border-radius:8px;font-size:10px;font-weight:700;letter-spacing:0.4px;cursor:pointer;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.06);color:#F87171;transition:background 0.15s,border-color 0.15s;white-space:nowrap}
+.ring-card-del:hover{background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.5)}
+
+/* ── EDIT PROJECT MODAL ─── */
+#edit-project-modal{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px)}
+#edit-project-modal.open{display:flex}
+.edit-proj-box{background:var(--surface);border:1px solid var(--border2);border-radius:18px;padding:28px 28px 24px;width:100%;max-width:460px;position:relative;box-shadow:0 24px 60px rgba(0,0,0,0.5)}
+.edit-proj-box h3{font-family:'DM Serif Display',serif;font-size:1.2rem;color:var(--text);margin:0 0 20px}
+.edit-proj-row{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.edit-proj-row label{font-size:10px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text3)}
+.edit-proj-row input,.edit-proj-row select,.edit-proj-row textarea{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-size:13px;color:var(--text);width:100%;box-sizing:border-box;transition:border-color 0.15s}
+.edit-proj-row input:focus,.edit-proj-row select:focus,.edit-proj-row textarea:focus{outline:none;border-color:rgba(34,197,94,0.5)}
+.edit-proj-progress-hint{font-size:10px;color:var(--text3);margin-top:3px}
+.edit-proj-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+.edit-proj-close{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;line-height:1;padding:4px}
 
 /* ── FOUNDER SUMMARY STRIP ─── */
 .ring-summary-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:28px}
@@ -602,21 +673,21 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
     <div class="sidebar-brand">
       <div class="s-icon" style="background:none;box-shadow:none;padding:0;overflow:hidden">
      <img src="/static/pgi logo.jpg" alt="PGI" style="width:32px;height:32px;object-fit:contain;border-radius:8px"></div>
-      <span>TaskFlow</span>
+      <span>Mastermind</span>
     </div>
     <nav class="sidebar-nav">
       <div class="nav-label">Workspace</div>
+      <div class="nav-item founder-only" id="nav-mastermind" onclick="showPanel('mastermind',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="6" r="3.5"/><path d="M4 13.5c0-2.2 1.8-4 4-4s4 1.8 4 4"/><path d="M6 6h.01M10 6h.01M6.5 8c.5.5 2.5.5 3 0"/></svg>
+        PGI Mastermind
+      </div>
       <div class="nav-item active" onclick="showPanel('dashboard',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
-        Dashboard
+        VisionBoard
       </div>
       <div class="nav-item" onclick="showPanel('tasks',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="12" rx="2"/><path d="M5 8h6M5 5h3M5 11h4"/></svg>
         My Tasks
-      </div>
-      <div class="nav-item" onclick="showPanel('attendance',this)">
-        <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="4" r="3"/><path d="M2 14c0-3.31 2.69-6 6-6s6 2.69 6 6H2z"/></svg>
-        Attendance
       </div>
       <div class="nav-item" onclick="showPanel('teams',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="5.5" cy="5" r="2.5"/><circle cx="10.5" cy="5" r="2.5"/><path d="M0 13c0-2.76 2.46-5 5.5-5s5.5 2.24 5.5 5H0z"/><path d="M6 13c0-2.76 2.24-5 5-5s5 2.24 5 5h-10z" opacity=".45"/></svg>
@@ -626,6 +697,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
         <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M14 1H2C1.45 1 1 1.45 1 2v9c0 .55.45 1 1 1h2v3l3-3h7c.55 0 1-.45 1-1V2c0-.55-.45-1-1-1z"/></svg>
         Messages
         <span class="msg-count-badge" id="msg-nav-badge">0</span>
+      </div>
+      <div class="nav-item" onclick="showPanel('attendance',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="4" r="3"/><path d="M2 14c0-3.31 2.69-6 6-6s6 2.69 6 6H2z"/></svg>
+        Attendance
       </div>
       <!-- CALENDAR NAV ITEM -->
       <div class="nav-item" onclick="showPanel('calendar',this)">
@@ -656,11 +731,6 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
       My Notepad
      </div>
 
-      <div class="nav-label founder-only">PGI Intelligence</div>
-      <div class="nav-item founder-only" id="nav-mastermind" onclick="showPanel('mastermind',this)">
-        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="6" r="3.5"/><path d="M4 13.5c0-2.2 1.8-4 4-4s4 1.8 4 4"/><path d="M6 6h.01M10 6h.01M6.5 8c.5.5 2.5.5 3 0"/></svg>
-        PGI Mastermind
-      </div>
     </nav>
 
     <div class="attendance-panel founder-only" id="sidebar-att-panel">
@@ -691,7 +761,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
   <main class="main">
     <div class="main-header">
       <div>
-        <div class="page-title" id="page-title">Dashboard</div>
+        <div class="page-title" id="page-title">VisionBoard</div>
         <div class="page-sub" id="page-sub">Welcome back</div>
       </div>
     </div>
@@ -699,33 +769,38 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 
       <!-- DASHBOARD -->
       <div class="panel active" id="panel-dashboard">
+        <!-- Morning banner (employee read-only view) -->
         <div class="morning-banner" id="morning-banner">
           <div class="morning-banner-title">☀️ Morning Message</div>
           <div class="morning-banner-text" id="morning-banner-text"></div>
           <div class="morning-banner-meta" id="morning-banner-meta"></div>
         </div>
-        <div class="morning-composer founder-only" id="morning-composer" style="display:none">
-          <h4>☀️ Send Morning Message via Email</h4>
-          <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.6;background:var(--surface2);border-radius:6px;padding:10px 12px;border:1px solid var(--border)">
-            <div style="color:var(--gold2);font-weight:600;margin-bottom:4px">Message Preview</div>
-            <div style="color:var(--text2)">☀️ Good morning, Laven here</div>
-            <div style="color:var(--text3);font-style:italic;margin:4px 0">[your message below]</div>
-            <div style="color:var(--text2)">Have a productive day! — Laven Lokesh, Plant Green Inertia 🌿</div>
-          </div>
-          <textarea id="morning-msg-input" rows="3" placeholder="Type today's message here..."></textarea>
-          <div class="morning-composer-actions">
-            <button class="btn-sm btn-gold" onclick="sendMorningMessage()">✉️ Send Email to Team</button>
-            <button class="btn-sm btn-outline" onclick="document.getElementById('morning-msg-input').value=''">Clear</button>
-            <button class="btn-sm btn-outline" onclick="testEmailDelivery()" style="color:var(--gold2);border-color:var(--gold3)">🔧 Test Email</button>
-          </div>
-        </div>
+        <!-- Dashboard Analytics: task stat cards -->
         <div class="stats-grid">
           <div class="stat-card"><div class="stat-label"><span class="dot dot-blue"></span>Total Tasks</div><div class="stat-value" id="stat-total">—</div><div class="stat-sub">All assigned</div></div>
           <div class="stat-card"><div class="stat-label"><span class="dot dot-gold"></span>In Progress</div><div class="stat-value" id="stat-progress">—</div><div class="stat-sub">Active today</div></div>
           <div class="stat-card"><div class="stat-label"><span class="dot dot-green"></span>Completed</div><div class="stat-value" id="stat-done">—</div><div class="stat-sub">Verified</div></div>
           <div class="stat-card"><div class="stat-label"><span class="dot dot-red"></span>Pending Review</div><div class="stat-value" id="stat-proof">—</div><div class="stat-sub">Need attention</div></div>
         </div>
+        <!-- Visionboard cards + task board rendered by renderDashboard() -->
         <div id="dashboard-tasks-section"></div>
+        <!-- Morning Message Composer (founder only) — always below analytics -->
+        <div class="morning-composer founder-only" id="morning-composer" style="display:none">
+          <h4>☀️ Send Morning Message via Email</h4>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.6;background:var(--surface2);border-radius:6px;padding:10px 12px;border:1px solid var(--border)">
+            <div style="color:var(--gold2);font-weight:600;margin-bottom:4px">Message Preview</div>
+            <div style="color:var(--text2)">☀️ Good morning, <span id="morning-sender-name">Laven</span> here</div>
+            <div style="color:var(--text3);font-style:italic;margin:4px 0">[your message below]</div>
+            <div style="color:var(--text2)">Have a productive day! — Plant Green Inertia 🌿</div>
+          </div>
+          <textarea id="morning-msg-input" rows="3" placeholder="Type today's message here..."></textarea>
+          <div class="morning-composer-actions">
+            <button class="btn-sm btn-gold" onclick="sendMorningMessage()">✉️ Send Email to Team</button>
+            <button class="btn-sm btn-outline" onclick="document.getElementById('morning-msg-input').value=''">Clear</button>
+            <button class="btn-sm btn-outline" onclick="testEmailDelivery()" style="color:var(--gold2);border-color:var(--gold3)">🔧 Test Email</button>
+            <button class="btn-sm btn-outline" onclick="sendDailyMotivationNow()" style="color:#A78BFA;border-color:rgba(167,139,250,0.4)" title="Send today's motivational quote to all users via email, WhatsApp and chat">✨ Send Daily Motivation</button>
+          </div>
+        </div>
       </div>
 
       <!-- MY TASKS -->
@@ -816,6 +891,13 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
             <div class="form-field"><label>Priority</label><select id="at-priority"><option value="high">High Priority</option><option value="medium" selected>Medium Priority</option><option value="low">Low Priority</option></select></div>
           </div>
           <div class="form-field"><label>Due Date</label><input type="date" id="at-due"></div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>Work Completed (%)</label>
+              <input type="number" id="at-wcp" min="0" max="100" value="0" placeholder="0–100" style="width:100%">
+              <div style="font-size:10px;color:var(--text3);margin-top:4px">Enter 0–100. Drives the ring progress graph.</div>
+            </div>
+          </div>
           <div class="form-field"><label>Personal Message to Member</label><textarea id="at-msg" rows="2" placeholder="Add a personal note or special instructions..."></textarea></div>
           <div class="assign-actions">
             <button class="btn-sm btn-gold" style="padding:11px 24px" onclick="assignTask()">Assign Task</button>
@@ -838,6 +920,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
             <div class="form-row">
               <div class="form-field"><label>Full Name</label><input type="text" id="nu-name" placeholder="Full name"></div>
               <div class="form-field"><label>Email</label><input type="email" id="nu-email" placeholder="email@company.com"></div>
+              <!-- <div class="form-field"><label>Date of Birth</label><input type="date" id="nu-dob"></div> -->
             </div>
             <div class="form-row">
               <div class="form-field"><label>Role</label>
@@ -941,6 +1024,22 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
   </div>
 </div>
 
+<!-- DELETE PROOF CONFIRMATION MODAL -->
+<div class="modal-overlay" id="delete-proof-modal">
+  <div class="modal" style="max-width:400px">
+    <div style="text-align:center;margin-bottom:6px;font-size:32px">🗑️</div>
+    <h3 style="text-align:center;margin-bottom:6px">Delete Proof?</h3>
+    <div class="modal-sub" style="text-align:center">Are you sure you want to delete this proof?<br>The task will be reset to <strong>Pending</strong>.</div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;margin:14px 0;font-size:13px;color:var(--text2)" id="dpm-task-name"></div>
+    <div class="modal-actions">
+      <button class="btn-sm btn-outline" onclick="closeDeleteProofModal()">Cancel</button>
+      <button class="btn-sm" id="dpm-confirm-btn" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#F87171;display:flex;align-items:center;gap:6px" onclick="confirmDeleteProof()">
+        <span>🗑</span> Delete Proof
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- EDIT USER MODAL -->
 <div class="edit-user-overlay" id="edit-user-modal">
   <div class="edit-user-modal">
@@ -968,6 +1067,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
           <option value="employee">Employee</option>
           <option value="intern">Intern</option>
           <option value="trainer">Trainer</option>
+          <option value="founder_assistant">Founder Assistant</option>
         </select>
       </div>
       <div class="form-field" id="eu-team-field">
@@ -1012,9 +1112,30 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
       </div>
     </div>
 
+    <div class="form-row">
+      <div class="form-field">
+        <label>Joining Date</label>
+        <input type="date" id="eu-joining">
+      </div>
+      <div class="form-field">
+        <label>Date of Birth</label>
+        <input type="date" id="eu-dob">
+      </div>
+    </div>
+
     <div class="form-field">
-      <label>Joining Date</label>
-      <input type="date" id="eu-joining">
+      <label>Profile Photo <span style="font-size:10px;color:var(--text3)">(JPG/PNG/WEBP, max 5MB)</span></label>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:6px">
+        <div id="eu-current-avatar" style="flex-shrink:0"></div>
+        <div style="flex:1">
+          <input type="file" id="eu-photo" accept=".jpg,.jpeg,.png,.webp" onchange="previewEditUserPhoto(this)"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;color:var(--text);font-size:12px;width:100%">
+          <div id="eu-photo-preview" style="display:none;margin-top:8px;align-items:center;gap:8px">
+            <img id="eu-photo-img" src="" alt="Preview" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--gold)">
+            <button type="button" onclick="removeEditUserPhoto()" style="font-size:11px;color:var(--red);background:none;border:none;cursor:pointer">✕ Remove photo</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;flex-wrap:wrap">
@@ -1133,6 +1254,7 @@ let lastNotifCount    = 0;
 let pollingTimer      = null;
 let taskDetailId      = null;
 let rejectTaskId      = null;
+let deleteProofTaskId = null;
 
 // ═══════════════════════════════════════════════════════════
 // COLORS / HELPERS
@@ -1141,6 +1263,21 @@ const AVATAR_COLORS = ['#22C55E','#38BDF8','#4ADE80','#FB923C','#A78BFA','#F472B
 const STATUS_ACCENT = { pending:'#5F7A6A', inprogress:'#FBBF24', submitted:'#38BDF8', completed:'#22C55E', rejected:'#EF4444' };
 
 function ac(id) { const i = ALL_USERS.findIndex(u => u.id === id); return AVATAR_COLORS[Math.abs(i) % AVATAR_COLORS.length]; }
+
+/**
+ * Returns an avatar <img> or initials <div> for a user.
+ * @param {object} u - user object with id, initials, profile_photo
+ * @param {number} size - pixel size (default 32)
+ * @param {number} fontSize - font size for initials (default 11)
+ */
+function userAvatarHTML(u, size = 32, fontSize = 11) {
+  if (!u) return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:#333">?</div>`;
+  const c = ac(u.id);
+  if (u.profile_photo) {
+    return `<img src="${u.profile_photo}" alt="${u.initials || '?'}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex-shrink:0">`;
+  }
+  return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:linear-gradient(135deg,${c}99,${c});flex-shrink:0">${u.initials || '?'}</div>`;
+}
 function nc(id) { return ac(id); }
 function uname(id) { return ALL_USERS.find(u => u.id === id)?.name || id; }
 function uobj(id)  { return ALL_USERS.find(u => u.id === id); }
@@ -1150,7 +1287,8 @@ function escapeHTML(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;
 function getEmployees()   { return ALL_USERS.filter(u => u.role === 'employee'); }
 function getInterns()     { return ALL_USERS.filter(u => u.role === 'intern'); }
 function getTrainers()    { return ALL_USERS.filter(u => u.role === 'trainer'); }
-function getNonFounders() { return ALL_USERS.filter(u => u.role !== 'founder'); }
+function getNonFounders() { return ALL_USERS.filter(u => !isFounderLike(u)); }
+function isFounderLike(u) { return u && (u.role === 'founder' || u.role === 'founder_assistant'); }
 
 // ═══════════════════════════════════════════════════════════
 // SESSION PERSISTENCE
@@ -1232,19 +1370,32 @@ function doLogout() {
 // ═══════════════════════════════════════════════════════════
 async function initApp() {
   const c = ac(currentUser.id);
-  document.getElementById('user-avatar').textContent   = currentUser.initials || '?';
-  document.getElementById('user-avatar').style.background = `linear-gradient(135deg,${c}99,${c})`;
+  // Sidebar avatar: show profile photo or initials
+  const sidebarAvatar = document.getElementById('user-avatar');
+  if (currentUser.profile_photo) {
+    sidebarAvatar.textContent = '';
+    sidebarAvatar.style.background = 'none';
+    sidebarAvatar.style.padding = '0';
+    sidebarAvatar.innerHTML = `<img src="${currentUser.profile_photo}" alt="${currentUser.initials}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">`;
+  } else {
+    sidebarAvatar.textContent   = currentUser.initials || '?';
+    sidebarAvatar.style.background = `linear-gradient(135deg,${c}99,${c})`;
+  }
   document.getElementById('user-name').textContent     = currentUser.name;
-  document.getElementById('user-role-lbl').textContent = currentUser.role === 'founder' ? 'Founder' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
+  document.getElementById('user-role-lbl').textContent = isFounderLike(currentUser) ? 'Founder' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
 
-  document.querySelectorAll('.founder-only').forEach(el => { el.style.display = currentUser.role === 'founder' ? '' : 'none'; });
+  document.querySelectorAll('.founder-only').forEach(el => { el.style.display = isFounderLike(currentUser) ? '' : 'none'; });
 
   const h = new Date().getHours();
   document.getElementById('page-title').textContent = `${h < 12 ? 'Good morning' : 'Good evening'}, ${currentUser.name.split(' ')[0]} ✦`;
   document.getElementById('page-sub').textContent   = "Here's your workspace overview";
   document.getElementById('at-due').value = new Date().toISOString().split('T')[0];
 
-  if (currentUser.role === 'founder') document.getElementById('morning-composer').style.display = '';
+  if (isFounderLike(currentUser)) {
+    document.getElementById('morning-composer').style.display = '';
+    const senderEl = document.getElementById('morning-sender-name');
+    if (senderEl) senderEl.textContent = currentUser.name.split(' ')[0];
+  }
   if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 
   // Update calendar open button href
@@ -1254,7 +1405,11 @@ async function initApp() {
   renderChannelTabs();
 
   if (API_ONLINE) {
-    await Promise.all([loadUsers(), loadTasks(), loadAttendance(), loadMorningMessage(), loadMessages('all'), loadNotifications()]);
+    await Promise.all([
+      loadUsers(), loadTasks(), loadAttendance(),
+      loadMorningMessage(), loadMessages('all'), loadNotifications(),
+      isFounderLike(currentUser) ? loadVbGoalsFromApi() : Promise.resolve()
+    ]);
   }
 
   populateMemberSelect();
@@ -1270,7 +1425,7 @@ async function loadUsers()    { const d = await api('GET', '/users'); if (d && A
 async function loadTasks()    { const d = await api('GET', '/tasks'); if (d && Array.isArray(d)) { TASKS = d; updateStats(); renderDashboard(); renderMyTasks(); renderVerify(); } }
 async function loadAttendance() { const d = await api('GET', '/attendance'); if (d && Array.isArray(d)) { ATTENDANCE = {}; d.forEach(a => { ATTENDANCE[a.userId] = a.status; }); } updateSidebarAttendance(); }
 async function loadMessages(channel) { const d = await api('GET', `/messages?channel=${channel}`); if (d && Array.isArray(d)) CHANNEL_MSGS[channel] = d; }
-async function loadMorningMessage() { const d = await api('GET', '/morning-message'); if (d?.text) { document.getElementById('morning-banner-text').textContent = d.text; document.getElementById('morning-banner-meta').textContent = `From ${d.from} · ${d.time}`; document.getElementById('morning-banner').style.display = currentUser.role !== 'founder' ? 'block' : 'none'; } }
+async function loadMorningMessage() { const d = await api('GET', '/morning-message'); if (d?.text) { document.getElementById('morning-banner-text').textContent = d.text; document.getElementById('morning-banner-meta').textContent = `From ${d.from} · ${d.time}`; document.getElementById('morning-banner').style.display = !isFounderLike(currentUser) ? 'block' : 'none'; } }
 async function loadNotifications() {
   const d = await api('GET', '/notifications');
   if (d && Array.isArray(d)) {
@@ -1314,7 +1469,7 @@ function renderNotifPanel() {
   window._NOTIF_MAP = {};
   NOTIFICATIONS.forEach(n => { window._NOTIF_MAP[n.id] = n; });
   list.innerHTML = NOTIFICATIONS.map(n => {
-    const icon = n.type === 'task' ? '📋' : n.type === 'proof' ? '📬' : n.type === 'morning' ? '☀️' : '💬';
+    const icon = n.type === 'task' ? '📋' : n.type === 'proof' ? '📬' : n.type === 'morning' ? '☀️' : n.type === 'motivation' ? '✨' : n.type === 'birthday' ? '🎂' : '💬';
     return `<div class="notif-item ${n.type}" onclick="handleNotifClick(${n.id})">
       <div class="notif-item-title">${icon} ${n.title}</div>
       <div class="notif-item-body">${n.body}</div>
@@ -1336,10 +1491,11 @@ async function handleNotifClick(id) {
   const notif = (window._NOTIF_MAP||{})[id]; if (!notif) return;
   const navFor = p => document.querySelector(`.nav-item[onclick*="'${p}'"]`);
   if (notif.type === 'task' || notif.type === 'proof') await loadTasks();
-  if (notif.type === 'proof')   showPanel('verify',    navFor('verify'));
-  else if (notif.type === 'morning') showPanel('dashboard', navFor('dashboard'));
-  else if (notif.type === 'message') showPanel('messages',  navFor('messages'));
-  else showPanel(currentUser.role === 'founder' ? 'dashboard' : 'tasks', navFor(currentUser.role === 'founder' ? 'dashboard' : 'tasks'));
+  if (notif.type === 'proof')       showPanel('verify',    navFor('verify'));
+  else if (notif.type === 'morning')     showPanel('dashboard', navFor('dashboard'));
+  else if (notif.type === 'message')     showPanel('messages',  navFor('messages'));
+  else if (notif.type === 'motivation')  showPanel('messages',  navFor('messages'));
+  else showPanel(isFounderLike(currentUser) ? 'dashboard' : 'tasks', navFor(isFounderLike(currentUser) ? 'dashboard' : 'tasks'));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1368,11 +1524,25 @@ async function testEmailDelivery() {
   } finally { if (btn) { btn.disabled = false; btn.textContent = '🔧 Test Email'; } }
 }
 
+async function sendDailyMotivationNow() {
+  const btn = document.querySelector('[onclick="sendDailyMotivationNow()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Sending…'; }
+  try {
+    const res = await api('POST', '/daily-quote/send-now');
+    if (!res || res.__error) { showToast('❌ ' + (res?.message || res?.error || 'Failed')); return; }
+    showToast('✨ Daily motivation sent to all users via email, WhatsApp & chat!');
+    // Refresh messages to show the new system quote
+    await loadMessages(currentChannel);
+    if (document.getElementById('panel-messages')?.classList.contains('active')) renderMessages();
+    await loadNotifications();
+  } finally { if (btn) { btn.disabled = false; btn.textContent = '✨ Send Daily Motivation'; } }
+}
+
 // ═══════════════════════════════════════════════════════════
 // STATS
 // ═══════════════════════════════════════════════════════════
 function updateStats() {
-  const tasks = currentUser.role === 'founder' ? TASKS : TASKS.filter(t => t.assignedTo === currentUser.id);
+  const tasks = isFounderLike(currentUser) ? TASKS : TASKS.filter(t => t.assignedTo === currentUser.id);
   document.getElementById('stat-total').textContent    = tasks.length;
   document.getElementById('stat-progress').textContent = tasks.filter(t => t.status === 'inprogress' || t.status === 'submitted').length;
   document.getElementById('stat-done').textContent     = tasks.filter(t => t.status === 'completed').length;
@@ -1400,15 +1570,21 @@ function priBadge(p) {
 function isTrainer() { return currentUser && currentUser.role === 'trainer'; }
 
 function taskCardHTML(t) {
-  const isFounder = currentUser.role === 'founder';
+  const isFounder = isFounderLike(currentUser);
   const isMyTask  = t.assignedTo === currentUser.id;
   const accent    = STATUS_ACCENT[t.status] || '#5F7A6A';
 
   let infoBlocks = '';
   if (t.status === 'rejected')
     infoBlocks += `<div class="tc-info-block tc-info-reject"><div class="tc-info-label" style="color:#F4856F">⚠ Proof Rejected</div>${t.rejection_reason ? '<strong>Reason:</strong> ' + escapeHTML(t.rejection_reason) + '<br>' : ''}Please resubmit via the Google Form.</div>`;
-  if (t.proof)
-    infoBlocks += `<div class="tc-info-block tc-info-proof"><div class="tc-info-label" style="color:#7EB8F5">✓ Proof Submitted</div>${escapeHTML(t.proof.text||'')}${t.proof.link ? `<a class="tc-info-link" href="${t.proof.link}" target="_blank">🔗 View submission</a>` : ''}</div>`;
+  if (t.proof) {
+    const canDeleteProof = isFounder || (isMyTask && t.assignedTo === currentUser.id);
+    const proofActions = `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+      ${t.proof.link ? `<a class="btn-tiny form-btn" href="${t.proof.link}" target="_blank" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">🔗 Open Proof</a>` : ''}
+      ${canDeleteProof ? `<button class="btn-tiny danger" onclick="openDeleteProofModal('${t.id}')" title="Delete this proof"><span style="font-size:13px">🗑</span> Delete Proof</button>` : ''}
+    </div>`;
+    infoBlocks += `<div class="tc-info-block tc-info-proof"><div class="tc-info-label" style="color:#7EB8F5">✓ Proof Submitted</div>${escapeHTML(t.proof.text||'')}${proofActions}</div>`;
+  }
   if (t.msg)
     infoBlocks += `<div class="tc-info-block tc-info-msg"><div class="tc-info-label" style="color:#5EE89A">📌 Founder's Note</div>${escapeHTML(t.msg)}</div>`;
 
@@ -1462,6 +1638,22 @@ function taskCardHTML(t) {
   if (isFounder && t.status === 'submitted')
     actions = `<button class="btn-tiny confirm" onclick="verifyTask('${t.id}','approve')">✓ Complete</button><button class="btn-tiny reject" onclick="openRejectModal('${t.id}')">✕ Reject</button>`;
 
+  // Work completion percentage bar (always visible)
+  const wcp = t.work_completion_percentage || 0;
+  const wcpColor = wcp >= 100 ? '#22C55E' : wcp >= 75 ? '#4ADE80' : wcp >= 50 ? '#38BDF8' : wcp >= 25 ? '#FBBF24' : '#5F7A6A';
+  const wcpBar = `<div style="margin:8px 18px 0;padding-bottom:4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <span style="font-size:10px;color:var(--text3);font-weight:600;letter-spacing:0.3px">WORK COMPLETION</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px;font-weight:700;color:${wcpColor}">${wcp}%</span>
+        ${isFounder ? `<button class="btn-tiny form-btn" style="font-size:10px;padding:2px 8px;height:auto" onclick="openEditWcpModal('${t.id}')">✏ Edit</button>` : ''}
+      </div>
+    </div>
+    <div style="background:var(--surface3);border-radius:4px;height:5px;overflow:hidden">
+      <div style="background:${wcpColor};height:100%;border-radius:4px;width:${wcp}%;transition:width 0.8s cubic-bezier(0.16,1,0.3,1)"></div>
+    </div>
+  </div>`;
+
   const tcClass = t.status === 'submitted' ? 'tc-submitted' : t.status === 'rejected' ? 'tc-rejected' : t.status === 'completed' ? 'tc-completed' : '';
 
   return `<div class="tc ${tcClass} fade">
@@ -1475,6 +1667,7 @@ function taskCardHTML(t) {
       <div class="tc-badges">${priBadge(t.priority)}${typeBadge}${isFounder ? `<span style="font-size:11px;color:var(--text3)">👤 ${uname(t.assignedTo)}</span>` : ''}</div>
       <div class="tc-meta"><span class="tc-meta-item">📅 ${t.due || 'TBD'}</span><span class="tc-meta-item">🕐 ${t.createdAt || ''}</span></div>
     </div>
+    ${wcpBar}
     ${infoBlocks ? `<div style="padding:0 18px 4px 18px">${infoBlocks}</div>` : ''}
     <div class="tc-footer">
       <div style="font-size:11px;color:var(--text3)">${!isFounder && isMyTask ? 'Your task' : isFounder ? uname(t.assignedTo) : 'Assigned task'}</div>
@@ -1614,10 +1807,18 @@ function renderVerify() {
         <div class="tc-meta"><span class="tc-meta-item">📅 ${t.due || 'TBD'}</span></div>
       </div>
       <div style="padding:0 18px 4px 18px">
-        <div class="tc-info-block tc-info-proof"><div class="tc-info-label" style="color:#7EB8F5">Submitted Proof</div>${escapeHTML(t.proof?.text||'')}${t.proof?.link ? `<a class="tc-info-link" href="${t.proof.link}" target="_blank">🔗 View</a>` : ''}</div>
+        <div class="tc-info-block tc-info-proof">
+          <div class="tc-info-label" style="color:#7EB8F5">Submitted Proof</div>
+          <div style="font-size:13px;color:var(--text2);margin:4px 0">${escapeHTML(t.proof?.text||'')}</div>
+          ${t.proof?.link ? `<div style="margin-top:6px"><a class="btn-tiny form-btn" href="${t.proof.link}" target="_blank" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">🔗 Open Proof</a></div>` : ''}
+        </div>
       </div>
       <div class="tc-footer"><div style="font-size:11px;color:var(--text3)">Awaiting verification</div>
-        <div class="tc-actions"><button class="btn-tiny confirm" onclick="verifyTask('${t.id}','approve')">✓ Mark Complete</button><button class="btn-tiny reject" onclick="openRejectModal('${t.id}')">✕ Reject</button></div>
+        <div class="tc-actions">
+          <button class="btn-tiny confirm" onclick="verifyTask('${t.id}','approve')">✓ Mark Complete</button>
+          <button class="btn-tiny reject" onclick="openRejectModal('${t.id}')">✕ Reject</button>
+          <button class="btn-tiny danger" onclick="openDeleteProofModal('${t.id}')" title="Delete this proof"><span style="font-size:13px">🗑</span> Delete Proof</button>
+        </div>
       </div>
     </div>`).join('')}</div>`;
 }
@@ -1644,6 +1845,47 @@ async function verifyTask(tid, action, reason) {
   await api('POST', `/tasks/${tid}/verify`, { action, reason: reason || '' });
   renderDashboard(); renderMyTasks(); renderVerify(); updateStats();
 }
+
+function openDeleteProofModal(tid) {
+  const t = TASKS.find(x => x.id === tid); if (!t) return;
+  deleteProofTaskId = tid;
+  document.getElementById('dpm-task-name').textContent = '📋 ' + t.title;
+  const btn = document.getElementById('dpm-confirm-btn');
+  btn.disabled = false;
+  btn.innerHTML = '<span>🗑</span> Delete Proof';
+  document.getElementById('delete-proof-modal').classList.add('open');
+}
+
+function closeDeleteProofModal() {
+  document.getElementById('delete-proof-modal').classList.remove('open');
+  deleteProofTaskId = null;
+}
+
+async function confirmDeleteProof() {
+  const tid = deleteProofTaskId;
+  if (!tid) return;
+  const btn = document.getElementById('dpm-confirm-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span style="opacity:0.6">⏳</span> Deleting…';
+  try {
+    const result = await api('DELETE', `/tasks/${tid}/proof`);
+    const t = TASKS.find(x => x.id === tid);
+    if (t && result.task) {
+      t.status = result.task.status;
+      t.proof  = result.task.proof;
+    }
+    closeDeleteProofModal();
+    showToast('🗑 Proof deleted — task reset to Pending');
+    renderDashboard(); renderMyTasks(); renderVerify(); updateStats();
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = '<span>🗑</span> Delete Proof';
+    showToast('Failed to delete proof — please try again');
+  }
+}
+
+// Keep deleteProof as alias for backward compat (e.g. kanban detail modal)
+function deleteProof(tid) { openDeleteProofModal(tid); }
 
 // ═══════════════════════════════════════════════════════════
 // KANBAN
@@ -1684,7 +1926,11 @@ function openKanbanDetail(tid) {
   document.getElementById('td-title').textContent = t.title;
   const aColor = ac(t.assignedTo);
   let actionsHTML = '';
-  if (t.status==='submitted') actionsHTML = `<button class="btn-sm btn-gold" onclick="verifyTask('${t.id}','approve');closeTaskDetail()">✓ Mark Complete</button><button class="btn-sm btn-outline" onclick="closeTaskDetail();openRejectModal('${t.id}')">✕ Reject</button>`;
+  if (t.status==='submitted') {
+    const isF = isFounderLike(currentUser);
+    const canDel = isF || (t.assignedTo === currentUser?.id);
+    actionsHTML = `<button class="btn-sm btn-gold" onclick="verifyTask('${t.id}','approve');closeTaskDetail()">✓ Mark Complete</button><button class="btn-sm btn-outline" onclick="closeTaskDetail();openRejectModal('${t.id}')">✕ Reject</button>${canDel ? `<button class="btn-sm" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);color:#F87171" onclick="closeTaskDetail();openDeleteProofModal('${t.id}')">🗑 Delete Proof</button>` : ''}`;
+  }
   document.getElementById('td-content').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">${statusBadge(t.status)} ${priBadge(t.priority)}<span style="font-size:11px;color:var(--text3);margin-left:auto">📅 ${t.due||'TBD'}</span></div>
     <div style="font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:14px">${escapeHTML(t.desc||'No description')}</div>
@@ -1694,11 +1940,142 @@ function openKanbanDetail(tid) {
     </div>
     ${t.msg?`<div class="tc-info-block tc-info-msg" style="margin:0 0 10px"><div class="tc-info-label" style="color:#5EE89A">📌 Founder's Note</div>${escapeHTML(t.msg)}</div>`:''}
     ${t.status==='rejected'?`<div class="tc-info-block tc-info-reject" style="margin:0 0 10px"><div class="tc-info-label" style="color:#F4856F">⚠ Rejected</div>${t.rejection_reason?escapeHTML(t.rejection_reason):''}</div>`:''}
-    ${t.proof?`<div class="tc-info-block tc-info-proof" style="margin:0 0 10px"><div class="tc-info-label" style="color:#7EB8F5">✓ Proof</div>${escapeHTML(t.proof.text||'')}${t.proof.link?`<a class="tc-info-link" href="${t.proof.link}" target="_blank">🔗 View</a>`:''}</div>`:''}`;
+    ${t.proof?`<div class="tc-info-block tc-info-proof" style="margin:0 0 10px"><div class="tc-info-label" style="color:#7EB8F5">✓ Proof Submitted</div><div style="font-size:13px;color:var(--text2);margin:4px 0">${escapeHTML(t.proof.text||'')}</div>${t.proof.link?`<div style="margin-top:8px"><a class="btn-tiny form-btn" href="${t.proof.link}" target="_blank" style="text-decoration:none;display:inline-flex;align-items:center;gap:4px">🔗 Open Proof</a></div>`:''}</div>`:''}`;
   document.getElementById('td-actions').innerHTML = `<button class="btn-sm btn-outline" onclick="closeTaskDetail()">Close</button>${actionsHTML}`;
   document.getElementById('task-detail-modal').classList.add('open');
 }
 function closeTaskDetail() { document.getElementById('task-detail-modal').classList.remove('open'); taskDetailId = null; }
+
+// ── Founder: Edit task work completion percentage inline ─────
+async function openEditWcpModal(tid) {
+  const t = TASKS.find(x => x.id === tid); if (!t) return;
+  const current = t.work_completion_percentage || 0;
+  const val = prompt(`Edit Work Completion % for:\n"${t.title}"\n\nEnter a value between 0 and 100:`, current);
+  if (val === null) return;  // cancelled
+  const parsed = parseFloat(val);
+  if (isNaN(parsed) || parsed < 0 || parsed > 100) { showToast('⚠ Enter a number between 0 and 100'); return; }
+  const res = await api('PATCH', `/tasks/${tid}/work-percentage`, { work_completion_percentage: parsed });
+  if (res?.success) {
+    t.work_completion_percentage = parsed;
+    showToast(`Work completion updated to ${parsed}% ✓`);
+    renderDashboard(); renderMyTasks();
+    // Refresh analytics rings if mastermind panel is open
+    if (document.getElementById('panel-mastermind')?.classList.contains('active')) {
+      renderProjectCards(); renderProjectSummaryRings();
+    }
+  } else {
+    showToast('Failed to update — ' + (res?.message || ''));
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// VISIONBOARD GOALS (persisted to DB — shared between founder + founder_assistant)
+// ═══════════════════════════════════════════════════════════
+const VB_DEFAULTS = { emp_goal:15, intern_goal:40, intship_goal:200, intship_cur:0, cert_goal:150, cert_cur:0 };
+let _VB_GOALS_CACHE = null;  // in-memory cache; refreshed on load and after save
+
+function loadVbGoals() {
+  // Return cached value synchronously (used during render).
+  // Call loadVbGoalsFromApi() to refresh from server.
+  return Object.assign({}, VB_DEFAULTS, _VB_GOALS_CACHE || {});
+}
+
+async function loadVbGoalsFromApi() {
+  try {
+    const d = await api('GET', '/dashboard/goals');
+    if (d && !d.__error && !d.error) {
+      _VB_GOALS_CACHE = d;
+    }
+  } catch(e) {
+    console.warn('[VB goals] Could not load from API, using defaults');
+  }
+  return loadVbGoals();
+}
+
+function openVbGoalsModal() {
+  const g = loadVbGoals();
+  document.getElementById('vbg-emp-goal').value     = g.emp_goal;
+  document.getElementById('vbg-intern-goal').value  = g.intern_goal;
+  document.getElementById('vbg-intship-cur').value  = g.intship_cur;
+  document.getElementById('vbg-intship-goal').value = g.intship_goal;
+  document.getElementById('vbg-cert-cur').value     = g.cert_cur;
+  document.getElementById('vbg-cert-goal').value    = g.cert_goal;
+  document.getElementById('vb-goals-modal').classList.add('open');
+}
+function closeVbGoalsModal() {
+  document.getElementById('vb-goals-modal').classList.remove('open');
+}
+async function applyVbGoals() {
+  const g = {
+    emp_goal:      Math.max(1, parseInt(document.getElementById('vbg-emp-goal').value)     || 15),
+    intern_goal:   Math.max(1, parseInt(document.getElementById('vbg-intern-goal').value)  || 40),
+    intship_cur:   Math.max(0, parseInt(document.getElementById('vbg-intship-cur').value)  || 0),
+    intship_goal:  Math.max(1, parseInt(document.getElementById('vbg-intship-goal').value) || 200),
+    cert_cur:      Math.max(0, parseInt(document.getElementById('vbg-cert-cur').value)     || 0),
+    cert_goal:     Math.max(1, parseInt(document.getElementById('vbg-cert-goal').value)    || 150),
+  };
+  const res = await api('PUT', '/dashboard/goals', g);
+  if (res && !res.__error && !res.error) {
+    _VB_GOALS_CACHE = res.goals || g;
+    showToast('✅ Goals saved for all founder accounts');
+  } else {
+    // Fallback: store locally so UI still updates
+    _VB_GOALS_CACHE = g;
+    showToast('⚠ Goals saved locally only (server unreachable)');
+  }
+  closeVbGoalsModal();
+  renderDashboard();
+}
+
+// ── Project expand lists ─────────────────────────────────────
+function populateVbProjectLists() {
+  if (!PGI_PROJECTS || PGI_PROJECTS.length === 0) {
+    // Projects not loaded yet — fetch them
+    api('GET', '/projects').then(data => {
+      if (Array.isArray(data)) PGI_PROJECTS = data;
+      _fillVbProjLists();
+    });
+  } else {
+    _fillVbProjLists();
+  }
+}
+
+function _fillVbProjLists() {
+  const catMap = { gov: 'Government', pvt: 'Private', b2c: 'B2C' };
+  Object.entries(catMap).forEach(([key, cat]) => {
+    const el = document.getElementById('vb-proj-' + key);
+    if (!el) return;
+    const projects = PGI_PROJECTS.filter(p => p.category === cat);
+    if (projects.length === 0) {
+      el.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:6px 0">No projects yet</div>';
+      return;
+    }
+    el.innerHTML = projects.map(p => {
+      const pct    = Number(p.progress_percentage ?? 0);
+      const status = p.status || 'Active';
+      const sc     = STATUS_COLORS?.[status] || { bg:'rgba(34,197,94,0.1)', color:'#5EE89A', border:'rgba(34,197,94,0.3)' };
+      const members = (p.team_members || '').split(',').map(m => m.trim()).filter(Boolean);
+      const teamStr = members.length ? members.slice(0,3).join(', ') + (members.length > 3 ? ` +${members.length-3}` : '') : '—';
+      return `<div class="vb-proj-row">
+        <div class="vb-proj-name">${escapeHTML(p.name)}</div>
+        <div class="vb-proj-meta">
+          <span class="vb-proj-pct">${pct}%</span>
+          <span class="vb-proj-status" style="background:${sc.bg};color:${sc.color};border:1px solid ${sc.border}">${escapeHTML(status)}</span>
+        </div>
+        <div class="vb-proj-team">👥 ${escapeHTML(teamStr)}</div>
+      </div>`;
+    }).join('');
+  });
+}
+
+function toggleVbProjList(key) {
+  const list  = document.getElementById('vb-proj-' + key);
+  const arrow = document.getElementById('vb-arr-' + key);
+  if (!list) return;
+  const open = list.classList.toggle('open');
+  if (arrow) arrow.style.transform = open ? 'rotate(180deg)' : '';
+  // Stop click from bubbling back to card when interacting with list rows
+}
 
 // ═══════════════════════════════════════════════════════════
 // DASHBOARD
@@ -1706,49 +2083,137 @@ function closeTaskDetail() { document.getElementById('task-detail-modal').classL
 function renderDashboard() {
   updateStats();
   const sec = document.getElementById('dashboard-tasks-section'); if (!sec) return;
-  if (currentUser.role === 'founder') {
-    // Build enhanced overview
+  if (isFounderLike(currentUser)) {
     const employees = getEmployees ? getEmployees() : ALL_USERS.filter(u => u.role==='employee'||u.role==='trainer');
-    const interns   = getInterns   ? getInterns()   : ALL_USERS.filter(u => u.role==='intern');
-    const govCount  = '—'; const pvtCount = '—'; const b2cCount = '—'; // loaded async via stats
+    const goals = loadVbGoals();
+
     sec.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:24px">
-        <div class="stat-card" style="cursor:pointer" onclick="showPanel('mastermind',document.getElementById('nav-mastermind'))">
-          <div class="stat-label"><span class="dot" style="background:var(--green)"></span>Government Projects</div>
-          <div class="stat-value" id="dash-gov-cnt">—</div><div class="stat-sub">PGI Mastermind</div>
+      <div class="section-header" style="margin-bottom:16px">
+        <div class="section-title">📊 Visionboard</div>
+        <button class="btn-sm btn-outline" style="font-size:11px;padding:5px 12px" onclick="openVbGoalsModal()">⚙ Edit Goals</button>
+      </div>
+      <div class="vb-grid" id="vb-cards-grid">
+        <!-- Card 1: Employees -->
+        <div class="vb-card" style="--vb-accent:rgba(34,197,94,0.5)">
+          <div class="vb-label"><span class="dot dot-green"></span>Employees</div>
+          <div class="vb-fraction" id="vb-emp-val"><span id="vb-emp-cur">—</span><span> / ${goals.emp_goal}</span></div>
+          <div class="vb-goal-bar"><div class="vb-goal-bar-fill" id="vb-emp-bar" style="width:0%"></div></div>
+          <div class="vb-sub">Current / Recruitment Goal</div>
         </div>
-        <div class="stat-card" style="cursor:pointer" onclick="showPanel('mastermind',document.getElementById('nav-mastermind'))">
-          <div class="stat-label"><span class="dot" style="background:var(--blue)"></span>Private Projects</div>
-          <div class="stat-value" id="dash-pvt-cnt">—</div><div class="stat-sub">PGI Mastermind</div>
+        <!-- Card 2: Interns -->
+        <div class="vb-card" style="--vb-accent:rgba(244,114,182,0.5)">
+          <div class="vb-label"><span class="dot" style="background:#F472B6"></span>Interns</div>
+          <div class="vb-fraction"><span id="vb-intern-cur">—</span><span style="color:var(--text3);font-size:1.1rem"> / ${goals.intern_goal}</span></div>
+          <div class="vb-goal-bar"><div class="vb-goal-bar-fill" id="vb-intern-bar" style="width:0%;background:#F472B6"></div></div>
+          <div class="vb-sub">Current / Recruitment Goal</div>
         </div>
-        <div class="stat-card" style="cursor:pointer" onclick="showPanel('mastermind',document.getElementById('nav-mastermind'))">
-          <div class="stat-label"><span class="dot" style="background:#FBBF24"></span>B2C Projects</div>
-          <div class="stat-value" id="dash-b2c-cnt">—</div><div class="stat-sub">PGI Mastermind</div>
+        <!-- Card 3: Government Projects -->
+        <div class="vb-card clickable" style="--vb-accent:rgba(34,197,94,0.5)" onclick="toggleVbProjList('gov')">
+          <div class="vb-label"><span class="dot dot-green"></span>Government Projects <span class="vb-expand-arrow" id="vb-arr-gov">▼</span></div>
+          <div class="vb-value" id="vb-gov-cnt">—</div>
+          <div class="vb-sub">Current count · click to expand</div>
+          <div class="vb-proj-list" id="vb-proj-gov"></div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label"><span class="dot dot-green"></span>Total Employees</div>
-          <div class="stat-value">${employees.length}</div><div class="stat-sub">Full-time team</div>
+        <!-- Card 4: Private Projects -->
+        <div class="vb-card clickable" style="--vb-accent:rgba(56,189,248,0.5)" onclick="toggleVbProjList('pvt')">
+          <div class="vb-label"><span class="dot dot-blue"></span>Private Projects <span class="vb-expand-arrow" id="vb-arr-pvt">▼</span></div>
+          <div class="vb-value" id="vb-pvt-cnt">—</div>
+          <div class="vb-sub">Current count · click to expand</div>
+          <div class="vb-proj-list" id="vb-proj-pvt"></div>
         </div>
-        <div class="stat-card" style="cursor:pointer" onclick="showPanel('mastermind',document.getElementById('nav-mastermind'))">
-          <div class="stat-label"><span class="dot" style="background:#F472B6"></span>Total Interns</div>
-          <div class="stat-value" id="dash-intern-cnt">—</div><div class="stat-sub">Across all domains</div>
+        <!-- Card 5: B2C Projects -->
+        <div class="vb-card clickable" style="--vb-accent:rgba(251,191,36,0.5)" onclick="toggleVbProjList('b2c')">
+          <div class="vb-label"><span class="dot dot-gold"></span>B2C Projects <span class="vb-expand-arrow" id="vb-arr-b2c">▼</span></div>
+          <div class="vb-value" id="vb-b2c-cnt">—</div>
+          <div class="vb-sub">Current count · click to expand</div>
+          <div class="vb-proj-list" id="vb-proj-b2c"></div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label"><span class="dot dot-gold"></span>Emp. Avg Rating</div>
-          <div class="stat-value" id="dash-emp-rating">—</div><div class="stat-sub">Today's ratings</div>
+        <!-- Card 6: Internships Offered -->
+        <div class="vb-card" style="--vb-accent:rgba(167,139,250,0.5)">
+          <div class="vb-label"><span class="dot" style="background:#A78BFA"></span>Internships Offered</div>
+          <div class="vb-fraction"><span id="vb-intship-cur">—</span><span style="color:var(--text3);font-size:1.1rem"> / ${goals.intship_goal}</span></div>
+          <div class="vb-goal-bar"><div class="vb-goal-bar-fill" id="vb-intship-bar" style="width:0%;background:#A78BFA"></div></div>
+          <div class="vb-sub">Current Total / Goal</div>
+        </div>
+        <!-- Card 7: Certifications Offered -->
+        <div class="vb-card" style="--vb-accent:rgba(251,146,60,0.5)">
+          <div class="vb-label"><span class="dot" style="background:#FB923C"></span>Certifications Offered</div>
+          <div class="vb-fraction"><span id="vb-cert-cur">—</span><span style="color:var(--text3);font-size:1.1rem"> / ${goals.cert_goal}</span></div>
+          <div class="vb-goal-bar"><div class="vb-goal-bar-fill" id="vb-cert-bar" style="width:0%;background:#FB923C"></div></div>
+          <div class="vb-sub">Current Total / Goal</div>
+        </div>
+        <!-- Card 8: Upcoming Birthdays -->
+        <div class="vb-card" id="vb-birthday-card" style="--vb-accent:rgba(244,114,182,0.5)">
+          <div class="vb-label"><span class="dot" style="background:#F472B6"></span>🎂 Upcoming Birthdays</div>
+          <div class="vb-value" id="vb-bday-cnt" style="font-size:1.5rem">—</div>
+          <div id="vb-bday-list" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.8"></div>
+          <div class="vb-sub">Within next 7 days</div>
         </div>
       </div>
       <div class="section-header" style="margin-bottom:16px"><div class="section-title">Task Board</div><span class="badge badge-gray">${TASKS.length} total</span></div>
       ${TASKS.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks assigned yet.</p></div>':renderKanban(TASKS)}`;
-    // Load dashboard stats async
+
+    // Load async stats (project counts, interns, employees)
     api('GET', '/dashboard-stats').then(stats => {
       if (!stats) return;
-      const g = document.getElementById('dash-gov-cnt');    if (g) g.textContent = stats.projects.government;
-      const p = document.getElementById('dash-pvt-cnt');    if (p) p.textContent = stats.projects.private;
-      const b = document.getElementById('dash-b2c-cnt');    if (b) b.textContent = stats.projects.b2c;
-      const i = document.getElementById('dash-intern-cnt'); if (i) i.textContent = stats.interns_roster.total;
-      const r = document.getElementById('dash-emp-rating'); if (r) r.textContent = stats.ratings.emp_avg || '—';
+      const g = goals;
+
+      // Employees
+      const empCur = stats.users?.total_employees ?? employees.length;
+      const empEl  = document.getElementById('vb-emp-cur');
+      const empBar = document.getElementById('vb-emp-bar');
+      if (empEl)  empEl.textContent = empCur;
+      if (empBar) empBar.style.width = Math.min(100, Math.round((empCur / (g.emp_goal||1)) * 100)) + '%';
+
+      // Interns
+      const intCur = stats.interns_roster?.total ?? 0;
+      const intEl  = document.getElementById('vb-intern-cur');
+      const intBar = document.getElementById('vb-intern-bar');
+      if (intEl)  intEl.textContent = intCur;
+      if (intBar) intBar.style.width = Math.min(100, Math.round((intCur / (g.intern_goal||1)) * 100)) + '%';
+
+      // Project counts
+      const govCnt = stats.projects?.government ?? 0;
+      const pvtCnt = stats.projects?.private ?? 0;
+      const b2cCnt = stats.projects?.b2c ?? 0;
+      const gEl = document.getElementById('vb-gov-cnt'); if (gEl) gEl.textContent = govCnt;
+      const pEl = document.getElementById('vb-pvt-cnt'); if (pEl) pEl.textContent = pvtCnt;
+      const bEl = document.getElementById('vb-b2c-cnt'); if (bEl) bEl.textContent = b2cCnt;
+
+      // Internships offered = total interns (same value) — editable goal
+      const ishEl  = document.getElementById('vb-intship-cur');
+      const ishBar = document.getElementById('vb-intship-bar');
+      if (ishEl)  ishEl.textContent = g.intship_cur;
+      if (ishBar) ishBar.style.width = Math.min(100, Math.round((g.intship_cur / (g.intship_goal||1)) * 100)) + '%';
+
+      // Certifications offered — editable current + goal
+      const crtEl  = document.getElementById('vb-cert-cur');
+      const crtBar = document.getElementById('vb-cert-bar');
+      if (crtEl)  crtEl.textContent = g.cert_cur;
+      if (crtBar) crtBar.style.width = Math.min(100, Math.round((g.cert_cur / (g.cert_goal||1)) * 100)) + '%';
     });
+
+    // Populate project expand lists from PGI_PROJECTS (or fetch if empty)
+    populateVbProjectLists();
+
+    // Load upcoming birthday alerts for VisionBoard card
+    api('GET', '/birthday-alerts').then(res => {
+      const alerts = (res && res.alerts) ? res.alerts : [];
+      const cntEl  = document.getElementById('vb-bday-cnt');
+      const lstEl  = document.getElementById('vb-bday-list');
+      if (cntEl) cntEl.textContent = alerts.length || '0';
+      if (lstEl) {
+        if (!alerts.length) {
+          lstEl.textContent = 'No upcoming birthdays this week';
+        } else {
+          lstEl.innerHTML = alerts.map(a => {
+            const label = a.days_away === 0 ? '🎉 Today!' : `in ${a.days_away} day${a.days_away!==1?'s':''}`;
+            return `<div style="display:flex;justify-content:space-between"><span>${escapeHTML(a.name)}</span><span style="color:var(--text3)">${a.birthday} · ${label}</span></div>`;
+          }).join('');
+        }
+      }
+    }).catch(() => {});
+
   } else {
     const tasks = TASKS.filter(t => t.assignedTo === currentUser.id);
     const sorted = [...tasks].sort((a,b) => {
@@ -1762,7 +2227,7 @@ function renderDashboard() {
 
 function renderMyTasks() {
   const el = document.getElementById('my-tasks-list'); if (!el) return;
-  if (currentUser.role === 'founder') {
+  if (isFounderLike(currentUser)) {
     const completedCount = TASKS.filter(t => t.status === 'completed').length;
     el.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
@@ -1784,7 +2249,7 @@ async function renderAttendance() {
   const view = document.getElementById('attendance-view');
   
   // Show basic content immediately, don't wait for history
-  if (currentUser.role === 'founder') {
+  if (isFounderLike(currentUser)) {
     const all    = getNonFounders();
     const pCount = all.filter(u => ATTENDANCE[u.id] === 'present').length;
     const aCount = all.length - pCount;
@@ -1849,7 +2314,7 @@ async function renderAttendance() {
 
 async function renderAttendance() {
   const view = document.getElementById('attendance-view');
-  if (currentUser.role === 'founder') {
+  if (isFounderLike(currentUser)) {
     const all    = getNonFounders();
     const pCount = all.filter(u => ATTENDANCE[u.id] === 'present').length;
     const aCount = all.length - pCount;
@@ -1904,7 +2369,7 @@ async function renderAttendance() {
       return `<tr>
         <td style="padding:10px 8px 10px 18px;border-bottom:1px solid var(--border2);position:sticky;left:0;background:var(--surface);z-index:1;min-width:160px">
           <div style="display:flex;align-items:center;gap:8px">
-            <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px;flex-shrink:0">${u.initials}</div>
+            ${u.profile_photo ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0">` : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px;flex-shrink:0">${u.initials}</div>`}
             <div style="min-width:0">
               <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div>
               <div style="font-size:10px;color:var(--text3);text-transform:capitalize">${u.role}${u.team ? ' · ' + (TEAM_CONFIG.find(t => t.id === u.team)?.name || u.team) : ''}</div>
@@ -2078,7 +2543,7 @@ function renderAttendanceReport(hist, all) {
     return `<tr>
       <td style="padding:10px 8px 10px 18px;border-bottom:1px solid var(--border2);position:sticky;left:0;background:var(--surface);z-index:1;min-width:160px">
         <div style="display:flex;align-items:center;gap:8px">
-          <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px;flex-shrink:0">${u.initials}</div>
+          ${u.profile_photo ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0">` : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px;flex-shrink:0">${u.initials}</div>`}
           <div>
             <div style="font-size:12px;font-weight:500;color:var(--text)">${u.name}</div>
             <div style="font-size:10px;color:var(--text3);text-transform:capitalize">${u.role}${u.team ? ' · '+(TEAM_CONFIG.find(t=>t.id===u.team)?.name||u.team) : ''}</div>
@@ -2165,7 +2630,7 @@ function exportAttendanceCSV() {
 function founderAttCard(u) {
   const s = ATTENDANCE[u.id] || 'absent'; const c = ac(u.id);
   return `<div class="founder-att-card ${s==='present'?'present-card':'absent-card'}">
-    <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px">${u.initials}</div>
+    ${u.profile_photo ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">` : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px">${u.initials}</div>`}
     <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div><div style="font-size:10px;color:var(--text3)">${u.team||u.role}</div></div>
     <span class="att-status-pill ${s==='present'?'att-present-pill':'att-absent-pill'}">${s==='present'?'PRESENT':'ABSENT'}</span>
   </div>`;
@@ -2181,7 +2646,7 @@ async function toggleAttendance(uid) {
 }
 
 function updateSidebarAttendance() {
-  if (currentUser?.role!=='founder') return;
+  if (!isFounderLike(currentUser)) return;
   const list = document.getElementById('sidebar-att-list'); if (!list) return;
   const all  = getNonFounders();
   if (!all.length) { list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:4px">No staff added yet</div>'; return; }
@@ -2204,7 +2669,7 @@ function buildTeamsList() {
 function getTeamMembers(teamId) {
   if (teamId==='trainers') return getTrainers();
   if (teamId==='interns')  return getInterns();
-  return ALL_USERS.filter(u => u.team===teamId && u.role!=='founder');
+  return ALL_USERS.filter(u => u.team===teamId && !isFounderLike(u));
 }
 
 function renderTeams() {
@@ -2217,7 +2682,8 @@ function renderTeams() {
     const pending = TASKS.filter(t => mems.some(m=>m.id===t.assignedTo) && t.status==='submitted').length;
     return `<div class="team-card" onclick="viewTeam('${team.id}')">
       <div class="team-name">${team.name}</div><div class="team-desc">${team.desc}</div>
-      <div class="members-row">${mems.slice(0,6).map((m,i)=>`<div class="mini-avatar" style="background:${colors[i%colors.length]}">${m.initials}</div>`).join('')}${mems.length>6?`<div class="mini-avatar" style="background:var(--surface3);color:var(--text2);font-size:8px">+${mems.length-6}</div>`:''}</div>
+      <div class="members-row">${mems.slice(0,6).map((m,i)=>m.profile_photo?`<img src="${m.profile_photo}" alt="${m.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0">`:(`<div class="mini-avatar" style="background:${colors[i%colors.length]}">${m.initials}</div>`)
+).join('')}${mems.length>6?`<div class="mini-avatar" style="background:var(--surface3);color:var(--text2);font-size:8px">+${mems.length-6}</div>`:''}</div>
       <div class="team-footer"><div class="team-count">${mems.length} member${mems.length!==1?'s':''}</div>${pending>0?`<span class="badge badge-blue" style="font-size:10px">${pending} review</span>`:'<span class="badge badge-green" style="font-size:10px">All clear</span>'}</div>
     </div>`;
   }).join('')}${!teams.length?'<div class="empty-state"><div class="e-icon">👥</div><p>No teams yet.</p></div>':''}</div>`;
@@ -2262,7 +2728,7 @@ function renderMemberDetail(uid) {
         <div class="m-stat" style="text-align:center"><div class="m-stat-val" style="font-size:24px;color:var(--green)">${done}</div><div class="m-stat-lbl">Done</div></div>
       </div>
     </div>
-    <div class="section-header"><div class="section-title">Assigned Tasks</div>${currentUser.role==='founder'?`<button class="btn-sm btn-gold" style="font-size:12px;padding:7px 14px" onclick="quickAssign('${uid}')">+ Assign Task</button>`:''}</div>
+    <div class="section-header"><div class="section-title">Assigned Tasks</div>${isFounderLike(currentUser)?`<button class="btn-sm btn-gold" style="font-size:12px;padding:7px 14px" onclick="quickAssign('${uid}')">+ Assign Task</button>`:''}</div>
     <div class="tasks-list fade">${tasks.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks assigned yet</p></div>':tasks.map(taskCardHTML).join('')}</div>`;
 }
 
@@ -2282,12 +2748,14 @@ function populateMemberSelect() {
 
 async function assignTask() {
   const title=document.getElementById('at-title').value.trim(), desc=document.getElementById('at-desc').value.trim(), member=document.getElementById('at-member').value, priority=document.getElementById('at-priority').value, due=document.getElementById('at-due').value, msg=document.getElementById('at-msg').value.trim();
+  const wcpRaw = parseFloat(document.getElementById('at-wcp')?.value || 0);
+  const wcp = isNaN(wcpRaw) ? 0 : Math.max(0, Math.min(100, wcpRaw));
   if (!title)  { showToast('⚠ Please enter a task title'); return; }
   if (!desc)   { showToast('⚠ Please enter a description'); return; }
   if (!member) { showToast('⚠ Please select a team member'); return; }
   const btn=document.querySelector('#panel-assign .btn-gold'); if(btn){btn.disabled=true;btn.textContent='Assigning…';}
   try {
-    const res=await api('POST','/tasks',{title,desc,assignedTo:member,priority,due,msg});
+    const res=await api('POST','/tasks',{title,desc,assignedTo:member,priority,due,msg,work_completion_percentage:wcp});
     if (!res||res.__error||res.error){showToast('⚠ '+(res?.message||res?.error||'Failed'));return;}
     if (res.task){TASKS.unshift(res.task);showToast('Task assigned to '+uname(member)+' ✓');clearAssignForm();renderDashboard();renderMyTasks();showPanel('dashboard',document.querySelector('.nav-item[onclick*="dashboard"]'));}
   } finally { if(btn){btn.disabled=false;btn.textContent='Assign Task';} }
@@ -2297,6 +2765,7 @@ function clearAssignForm() {
   ['at-title','at-desc','at-msg'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('at-member').value=''; document.getElementById('at-priority').value='medium';
   document.getElementById('at-due').value=new Date().toISOString().split('T')[0];
+  const wcpEl = document.getElementById('at-wcp'); if (wcpEl) wcpEl.value = '0';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2328,7 +2797,7 @@ async function assignTrainerDailyTasks(userId) {
 // MESSAGES
 // ═══════════════════════════════════════════════════════════
 function canAccessChannel(channel) {
-  if (currentUser.role==='founder') return true;
+  if (isFounderLike(currentUser)) return true;
   if (channel==='all') return true;
   if (channel==='trainers') return currentUser.role==='trainer';
   if (channel==='interns')  return currentUser.role==='intern';
@@ -2338,7 +2807,7 @@ function canAccessChannel(channel) {
 function renderChannelTabs() {
   const tabs=document.getElementById('channel-tabs'); if(!tabs) return;
   const teams=buildTeamsList();
-  const visible=currentUser.role==='founder'?teams:teams.filter(t=>canAccessChannel(t.id));
+  const visible=isFounderLike(currentUser)?teams:teams.filter(t=>canAccessChannel(t.id));
   tabs.innerHTML=`<div class="msg-chan-tab active" data-channel="all" onclick="switchChannel('all',this)">🌐 Everyone</div>${visible.map(t=>`<div class="msg-chan-tab" data-channel="${t.id}" onclick="switchChannel('${t.id}',this)">${t.name}</div>`).join('')}`;
 }
 
@@ -2352,13 +2821,92 @@ async function switchChannel(channel,el) {
   await loadMessages(channel); renderMessages();
 }
 
+// ─── WhatsApp-style date grouping helpers ───────────────────
+function msgDateLabel(isoStr) {
+  if (!isoStr) return null;
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().split('T')[0]; // "YYYY-MM-DD"
+}
+function msgDateDisplay(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return '';
+  const today = new Date();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const isoDate = d.toISOString().split('T')[0];
+  const todayIso = today.toISOString().split('T')[0];
+  const yestIso  = yesterday.toISOString().split('T')[0];
+  if (isoDate === todayIso)   return '📅 Today';
+  if (isoDate === yestIso)    return '📅 Yesterday';
+  return '📅 ' + d.toLocaleDateString('en-IN', { day:'numeric', month:'long', year:'numeric' });
+}
+function msgTimeDisplay(m) {
+  // Prefer ISO timestamp for exact local time; fall back to stored time string
+  if (m.timestamp) {
+    const d = new Date(m.timestamp);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', hour12:true }).toUpperCase();
+    }
+  }
+  return m.time || '';
+}
+
 function renderMessages() {
-  const msgs=CHANNEL_MSGS[currentChannel]||[];
-  const msgList=document.getElementById('msg-list');
-  if (!canAccessChannel(currentChannel)){msgList.innerHTML='<div class="msg-empty" style="color:var(--red)">🔒 Access denied.</div>';return;}
-  if (!msgs.length){msgList.innerHTML='<div class="msg-empty">No messages yet. Say hello! 👋</div>';return;}
-  msgList.innerHTML=msgs.map(m=>`<div class="msg-card ${currentUser&&m.fromId===currentUser.id?'mine':''} fade"><div class="msg-header"><span class="msg-from" style="color:${nc(m.fromId)}">${escapeHTML(m.from)}</span><span class="msg-time">${m.time}</span></div><div class="msg-body">${escapeHTML(m.text)}</div></div>`).join('');
-  msgList.scrollTop=msgList.scrollHeight;
+  const msgs    = CHANNEL_MSGS[currentChannel] || [];
+  const msgList = document.getElementById('msg-list');
+  if (!canAccessChannel(currentChannel)) {
+    msgList.innerHTML = '<div class="msg-empty" style="color:var(--red)">🔒 Access denied.</div>';
+    return;
+  }
+  if (!msgs.length) {
+    msgList.innerHTML = '<div class="msg-empty">No messages yet. Say hello! 👋</div>';
+    return;
+  }
+
+  // Group messages by date
+  let lastDate  = null;
+  let html = '';
+
+  for (const m of msgs) {
+    const dateKey     = msgDateLabel(m.timestamp) || (m.time ? 'legacy' : 'unknown');
+    const displayTime = msgTimeDisplay(m);
+    const isSystem    = m.fromId === 'system';
+    const isMine      = currentUser && m.fromId === currentUser.id && !isSystem;
+
+    // Insert date separator when date changes
+    if (dateKey !== lastDate) {
+      const dateLabel = msgDateDisplay(m.timestamp) || (m.time ? '📅 ' + (m.time.split(' ')[0] || '') : '');
+      if (dateLabel) {
+        html += `<div style="display:flex;align-items:center;gap:12px;margin:18px 0 12px;padding:0 4px">
+          <div style="flex:1;height:1px;background:var(--border)"></div>
+          <div style="font-size:11px;font-weight:600;color:var(--text3);letter-spacing:0.3px;white-space:nowrap">${escapeHTML(dateLabel)}</div>
+          <div style="flex:1;height:1px;background:var(--border)"></div>
+        </div>`;
+      }
+      lastDate = dateKey;
+    }
+
+    if (isSystem) {
+      // System/motivation messages styled distinctly
+      html += `<div class="msg-card fade" style="margin:10px auto;max-width:80%;background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.2);border-radius:14px;padding:14px 18px;text-align:center">
+        <div style="font-size:11px;font-weight:600;color:var(--gold2);margin-bottom:6px">${escapeHTML(m.from)}</div>
+        <div class="msg-body" style="color:var(--text2);font-style:italic;white-space:pre-line;line-height:1.6">${escapeHTML(m.text)}</div>
+        <div class="msg-time" style="color:var(--text3);font-size:10px;margin-top:8px">${escapeHTML(displayTime)}</div>
+      </div>`;
+    } else {
+      html += `<div class="msg-card ${isMine ? 'mine' : ''} fade">
+        <div class="msg-header">
+          <span class="msg-from" style="color:${nc(m.fromId)}">${escapeHTML(m.from)}</span>
+          <span class="msg-time">${escapeHTML(displayTime)}</span>
+        </div>
+        <div class="msg-body">${escapeHTML(m.text)}</div>
+      </div>`;
+    }
+  }
+
+  msgList.innerHTML = html;
+  msgList.scrollTop = msgList.scrollHeight;
 }
 
 async function sendMsg() {
@@ -2388,7 +2936,7 @@ function renderUsersList() {
 
   const activeTab   = container.dataset.tab || 'employees';
   const nonFounders = ALL_USERS.filter(u => u.role !== 'founder');
-  const employees   = nonFounders.filter(u => u.role === 'employee' || u.role === 'trainer');
+  const employees   = nonFounders.filter(u => u.role === 'employee' || u.role === 'trainer' || u.role === 'founder_assistant');
   const interns     = nonFounders.filter(u => u.role === 'intern');
   const members     = activeTab === 'interns' ? interns : employees;
 
@@ -2396,12 +2944,17 @@ function renderUsersList() {
     const c        = ac(u.id);
     const teamName = TEAM_CONFIG.find(t => t.id === u.team)?.name || (u.team || '—');
     const domain   = u.domain || u.specialty || '—';
+    const avatarHTML = u.profile_photo
+      ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--gold);flex-shrink:0">`
+      : `<div class="avatar" style="width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0;background:linear-gradient(135deg,${c}99,${c})">${u.initials}</div>`;
+    const dobDisplay = u.date_of_birth ? `<div style="font-size:10px;color:var(--text3)">DOB: ${u.date_of_birth}</div>` : '';
     return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:14px;margin-bottom:8px;flex-wrap:wrap">
-      <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c})">${u.initials}</div>
+      ${avatarHTML}
       <div style="flex:1;min-width:140px">
         <div style="font-size:13px;font-weight:500;color:var(--text)">${u.name}</div>
         <div style="font-size:11px;color:var(--text2)">${u.email}</div>
         ${u.joining_date ? `<div style="font-size:10px;color:var(--text3)">Joined: ${u.joining_date}</div>` : ''}
+        ${dobDisplay}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="badge badge-gray" style="font-size:10px">${u.role}</span>
@@ -2437,6 +2990,7 @@ function renderUsersList() {
               <option value="employee">Employee</option>
               <option value="intern">Intern</option>
               <option value="trainer">Trainer</option>
+              <option value="founder_assistant">Founder Assistant</option>
             </select>
           </div>
           <div class="form-field" id="nu-team-field-inline">
@@ -2464,10 +3018,23 @@ function renderUsersList() {
           <div class="form-field"><label>Joining Date</label>
             <input type="date" id="nu-joining"></div>
         </div>
+        <div class="form-row">
+          <div class="form-field"><label>Date of Birth</label>
+            <input type="date" id="nu-dob" max="" placeholder="YYYY-MM-DD"></div>
+          <div class="form-field"><label>WhatsApp Number</label>
+            <input type="tel" id="nu-phone" placeholder="+91XXXXXXXXXX"></div>
+        </div>
         <div class="form-field"><label>Password</label>
           <input type="password" id="nu-pass" placeholder="Default: emp2025"></div>
-        <div class="form-field"><label>WhatsApp Number</label>
-          <input type="tel" id="nu-phone" placeholder="+91XXXXXXXXXX"></div>
+        <div class="form-field">
+          <label>Profile Photo <span style="font-size:10px;color:var(--text3)">(JPG/PNG/WEBP, max 5MB)</span></label>
+          <input type="file" id="nu-photo" accept=".jpg,.jpeg,.png,.webp" onchange="previewAddUserPhoto(this)"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;color:var(--text);font-size:12px;width:100%">
+          <div id="nu-photo-preview" style="display:none;margin-top:8px">
+            <img id="nu-photo-img" src="" alt="Preview" style="width:64px;height:64px;border-radius:50%;object-fit:cover;border:2px solid var(--gold)">
+            <button type="button" onclick="removeAddUserPhoto()" style="margin-left:10px;font-size:11px;color:var(--red);background:none;border:none;cursor:pointer">✕ Remove</button>
+          </div>
+        </div>
         <div class="assign-actions">
           <button class="btn-sm btn-gold" onclick="createUser()">Create User</button>
           <button class="btn-sm btn-outline" onclick="hideAddUserForm()">Cancel</button>
@@ -2521,6 +3088,7 @@ function showAddUserForm() {
   setTimeout(() => {
     document.getElementById('inline-add-user-form')
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setDobMaxDate('nu-dob');   // prevent future DOB
   }, 50);
 }
 
@@ -2528,6 +3096,82 @@ function hideAddUserForm() {
   console.log('[hideAddUserForm] closing form');
   _addUserFormOpen = false;
   renderUsersList();
+}
+
+// ── Set max date for DOB input to today (runs after form renders) ──
+function setDobMaxDate(inputId) {
+  const el = document.getElementById(inputId);
+  if (el) el.max = new Date().toISOString().split('T')[0];
+}
+
+// ── Profile photo preview in Add User form ──
+function previewAddUserPhoto(input) {
+  const preview = document.getElementById('nu-photo-preview');
+  const img     = document.getElementById('nu-photo-img');
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowed.includes(file.type)) {
+    showToast('❌ Invalid file type. Use JPG, PNG, or WEBP.');
+    input.value = '';
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('❌ File too large. Max 5 MB.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    if (img) img.src = e.target.result;
+    if (preview) preview.style.display = 'flex';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeAddUserPhoto() {
+  const preview = document.getElementById('nu-photo-preview');
+  const img     = document.getElementById('nu-photo-img');
+  const input   = document.getElementById('nu-photo');
+  if (input)   input.value   = '';
+  if (img)     img.src       = '';
+  if (preview) preview.style.display = 'none';
+}
+
+// ── Profile photo preview in Edit User modal ──
+function previewEditUserPhoto(input) {
+  const preview = document.getElementById('eu-photo-preview');
+  const img     = document.getElementById('eu-photo-img');
+  if (!input.files || !input.files[0]) return;
+  const file = input.files[0];
+  const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowed.includes(file.type)) {
+    showToast('❌ Invalid file type. Use JPG, PNG, or WEBP.');
+    input.value = '';
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    showToast('❌ File too large. Max 5 MB.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    if (img) img.src = e.target.result;
+    if (preview) preview.style.display = 'flex';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeEditUserPhoto() {
+  const preview = document.getElementById('eu-photo-preview');
+  const img     = document.getElementById('eu-photo-img');
+  const input   = document.getElementById('eu-photo');
+  if (input)   input.value   = '';
+  if (img)     img.src       = '';
+  if (preview) preview.style.display = 'none';
+  // flag for removal on save
+  window._euRemovePhoto = true;
 }
 
 function toggleInlineTeamField() {
@@ -2556,6 +3200,8 @@ async function createUser() {
   const phone   = document.getElementById('nu-phone')?.value.trim()  || '';
   const domain  = document.getElementById('nu-domain')?.value?.trim() || '';
   const joining = document.getElementById('nu-joining')?.value       || '';
+  const dob     = document.getElementById('nu-dob')?.value           || '';
+  const photoFile = document.getElementById('nu-photo')?.files?.[0]  || null;
 
   console.log('[createUser] values:', { name, email, role, team, domain });
 
@@ -2573,7 +3219,8 @@ async function createUser() {
       password:     pass || 'emp2025',
       phone:        phone  || null,
       domain:       domain || null,
-      joining_date: joining || null
+      joining_date: joining || null,
+      date_of_birth: dob || null
     };
     console.log('[createUser] → POST /api/users', payload);
 
@@ -2597,6 +3244,27 @@ async function createUser() {
     // Persist in local state
     ALL_USERS.push(res.user);
     console.log('[createUser] ✓ added to ALL_USERS. Total:', ALL_USERS.length);
+
+    // Upload profile photo if one was selected
+    if (photoFile && res.user?.id) {
+      try {
+        const photoData = new FormData();
+        photoData.append('photo', photoFile);
+        const photoRes = await fetch(API_BASE + '/users/' + res.user.id + '/upload-photo', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + API_TOKEN },
+          body: photoData
+        });
+        const photoJson = await photoRes.json();
+        if (photoJson.success) {
+          // Update local user object with photo path
+          const idx = ALL_USERS.findIndex(u => u.id === res.user.id);
+          if (idx !== -1) ALL_USERS[idx].profile_photo = photoJson.profile_photo;
+        }
+      } catch(photoErr) {
+        console.warn('[createUser] Photo upload failed:', photoErr);
+      }
+    }
 
     if (role === 'trainer' && res.user?.id) {
       await assignTrainerDailyTasks(res.user.id);
@@ -2654,6 +3322,23 @@ function openEditUserModal(uid) {
   document.getElementById('eu-department').value = user.department   || '';
   document.getElementById('eu-domain').value     = user.domain       || '';
   document.getElementById('eu-joining').value    = user.joining_date || '';
+  document.getElementById('eu-dob').value        = user.date_of_birth || '';
+  document.getElementById('eu-dob').max          = new Date().toISOString().split('T')[0];
+
+  // Show current profile photo or initials avatar
+  const avatarEl = document.getElementById('eu-current-avatar');
+  if (avatarEl) {
+    const c = ac(user.id);
+    avatarEl.innerHTML = user.profile_photo
+      ? `<img src="${user.profile_photo}" alt="${user.initials}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--gold)">`
+      : `<div style="width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;background:linear-gradient(135deg,${c}99,${c})">${user.initials}</div>`;
+  }
+  // Reset photo input and preview
+  const euPhoto = document.getElementById('eu-photo');
+  const euPreview = document.getElementById('eu-photo-preview');
+  if (euPhoto)   euPhoto.value = '';
+  if (euPreview) euPreview.style.display = 'none';
+  window._euRemovePhoto = false;
 
   toggleEditTeamField();
   document.getElementById('edit-user-modal').classList.add('open');
@@ -2684,23 +3369,47 @@ async function saveEditUser() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
   try {
+    const dob      = document.getElementById('eu-dob')?.value        || null;
+    const photoFile = document.getElementById('eu-photo')?.files?.[0] || null;
+
     const payload = {
       name,
       email,
-      role:         document.getElementById('eu-role').value,
-      team:         document.getElementById('eu-team').value         || null,
-      specialty:    document.getElementById('eu-specialty').value    || null,
-      phone:        document.getElementById('eu-phone').value        || null,
-      department:   document.getElementById('eu-department').value   || null,
-      domain:       document.getElementById('eu-domain').value       || null,
-      joining_date: document.getElementById('eu-joining').value      || null,
+      role:           document.getElementById('eu-role').value,
+      team:           document.getElementById('eu-team').value         || null,
+      specialty:      document.getElementById('eu-specialty').value    || null,
+      phone:          document.getElementById('eu-phone').value        || null,
+      department:     document.getElementById('eu-department').value   || null,
+      domain:         document.getElementById('eu-domain').value       || null,
+      joining_date:   document.getElementById('eu-joining').value      || null,
+      date_of_birth:  dob || null,
     };
+
+    // If user chose to remove photo, clear it in backend
+    if (window._euRemovePhoto) payload.profile_photo = null;
 
     const res = await api('PUT', `/users/${_editUserId}`, payload);
 
     if (!res || res.__error || res.error) {
       showToast('❌ ' + (res?.message || res?.error || 'Failed to save changes'));
       return;
+    }
+
+    // Upload new photo if selected
+    if (photoFile) {
+      try {
+        const photoData = new FormData();
+        photoData.append('photo', photoFile);
+        const photoRes = await fetch(API_BASE + '/users/' + _editUserId + '/upload-photo', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + API_TOKEN },
+          body: photoData
+        });
+        const photoJson = await photoRes.json();
+        if (photoJson.success) res.user.profile_photo = photoJson.profile_photo;
+      } catch(photoErr) {
+        console.warn('[saveEditUser] Photo upload failed:', photoErr);
+      }
     }
 
     // Update local state — preserves all other data, only updates profile fields
@@ -2817,7 +3526,7 @@ function renderRatings() {
     const domain = u.domain || u.specialty || '';
     return `<div class="rating-card" id="rcard-${u.id}"><div class="rating-card-inner"><div class="rating-card-accent" id="raccent-${u.id}" style="background:${colour}"></div><div class="rating-card-body">
       <div class="rating-card-top">
-        <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});flex-shrink:0;width:40px;height:40px;font-size:13px">${u.initials}</div>
+        ${u.profile_photo ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0">` : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});flex-shrink:0;width:40px;height:40px;font-size:13px">${u.initials}</div>`}
         <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;color:var(--text)">${u.name}</div><div style="font-size:10px;color:var(--text3);text-transform:capitalize">${u.role}${domain?' · '+domain:u.team?' · '+u.team:''}</div></div>
         <div class="rating-circle" id="rcircle-${u.id}" style="border-color:${colour};background:${colour}15"><div class="rating-circle-num" id="rscore-${u.id}" style="color:${colour}">${score}</div><div class="rating-circle-den">/10</div></div>
       </div>
@@ -2943,7 +3652,7 @@ function showPanel(name,navEl) {
   const p=document.getElementById('panel-'+name);if(p)p.classList.add('active');
   if(navEl)navEl.classList.add('active');
   const titles={
-    dashboard:['Dashboard','Your workspace overview'],
+    dashboard:['VisionBoard','Your workspace overview'],
     tasks:['My Tasks','All assigned tasks'],
     attendance:['Attendance','Mark and view attendance'],
     teams:['Teams','Browse teams and members'],
@@ -2997,74 +3706,97 @@ async function startHealthCheck(){await checkBackend();setInterval(checkBackend,
 startHealthCheck();
 
 // ═══════════════════════════════════════════════════════════
-// NOTEPAD (private per user, stored in localStorage by user id)
+// NOTEPAD — account-based, synced with backend database
 // ═══════════════════════════════════════════════════════════
-function notepadKey() {
-  return 'pgi_notepad_' + (currentUser?.id || 'anon');
-}
+let _notepadItems = [];  // in-memory cache; always synced from backend
 
-function loadNotepadItems() {
-  try { return JSON.parse(localStorage.getItem(notepadKey()) || '[]'); }
-  catch(e) { return []; }
-}
-
-function saveNotepadItems(items) {
-  localStorage.setItem(notepadKey(), JSON.stringify(items));
-}
-
-function renderNotepad() {
-  const items = loadNotepadItems();
+async function renderNotepad() {
   const list  = document.getElementById('notepad-list');
   const count = document.getElementById('notepad-count');
-  if (count) count.textContent = items.length;
   if (!list) return;
-  if (!items.length) {
+
+  // Show loading state on first open
+  if (!_notepadItems.length) {
+    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px">Loading…</div>';
+  }
+
+  try {
+    const data = await api('GET', '/todos');
+    _notepadItems = Array.isArray(data) ? data : [];
+  } catch(e) {
+    showToast('Could not load notes — check connection');
+    _notepadItems = [];
+  }
+  _renderNotepadList();
+}
+
+function _renderNotepadList() {
+  const list  = document.getElementById('notepad-list');
+  const count = document.getElementById('notepad-count');
+  if (count) count.textContent = _notepadItems.length;
+  if (!list) return;
+  if (!_notepadItems.length) {
     list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px">No notes yet — add your first to-do above 📝</div>';
     return;
   }
-  list.innerHTML = items.map((item, idx) => `
-    <div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid ${item.done ? 'rgba(34,197,94,0.2)' : 'var(--border)'};border-radius:var(--radius-sm);padding:10px 14px;transition:border-color 0.15s">
-      <div onclick="toggleNotepadItem(${idx})" style="cursor:pointer;font-size:18px;flex-shrink:0;line-height:1;user-select:none">
-        ${item.done
+  list.innerHTML = _notepadItems.map((item) => `
+    <div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid ${item.completed ? 'rgba(34,197,94,0.2)' : 'var(--border)'};border-radius:var(--radius-sm);padding:10px 14px;transition:border-color 0.15s">
+      <div onclick="toggleNotepadItem(${item.id})" style="cursor:pointer;font-size:18px;flex-shrink:0;line-height:1;user-select:none">
+        ${item.completed
           ? '<span style="color:var(--green)">✅</span>'
           : '<span style="color:var(--text3);font-size:16px;border:1.5px solid var(--border2);border-radius:50%;width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center"> </span>'}
       </div>
-      <span style="flex:1;font-size:13px;color:${item.done ? 'var(--text3)' : 'var(--text)'};text-decoration:${item.done ? 'line-through' : 'none'};line-height:1.4">${escapeHTML(item.text)}</span>
-      <span onclick="deleteNotepadItem(${idx})" style="cursor:pointer;color:var(--text3);font-size:18px;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:color 0.15s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</span>
+      <span style="flex:1;font-size:13px;color:${item.completed ? 'var(--text3)' : 'var(--text)'};text-decoration:${item.completed ? 'line-through' : 'none'};line-height:1.4">${escapeHTML(item.title)}</span>
+      <span onclick="deleteNotepadItem(${item.id})" style="cursor:pointer;color:var(--text3);font-size:18px;flex-shrink:0;line-height:1;padding:2px 4px;border-radius:4px;transition:color 0.15s" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--text3)'">×</span>
     </div>`).join('');
 }
 
-function addNotepadItem() {
+async function addNotepadItem() {
   const input = document.getElementById('notepad-input');
   const text  = input?.value.trim();
   if (!text) { showToast('Please type something first'); return; }
-  const items = loadNotepadItems();
-  items.unshift({ text, done: false, createdAt: new Date().toLocaleString('en-IN') });
-  saveNotepadItems(items);
-  input.value = '';
-  renderNotepad();
+  try {
+    const todo = await api('POST', '/todos', { title: text });
+    _notepadItems.unshift(todo);
+    input.value = '';
+    _renderNotepadList();
+  } catch(e) {
+    showToast('Failed to add note — please try again');
+  }
 }
 
-function toggleNotepadItem(idx) {
-  const items = loadNotepadItems();
-  if (items[idx]) items[idx].done = !items[idx].done;
-  saveNotepadItems(items);
-  renderNotepad();
+async function toggleNotepadItem(id) {
+  const item = _notepadItems.find(x => x.id === id);
+  if (!item) return;
+  try {
+    const updated = await api('PUT', `/todos/${id}`, { completed: !item.completed });
+    Object.assign(item, updated);
+    _renderNotepadList();
+  } catch(e) {
+    showToast('Failed to update note');
+  }
 }
 
-function deleteNotepadItem(idx) {
-  const items = loadNotepadItems();
-  items.splice(idx, 1);
-  saveNotepadItems(items);
-  renderNotepad();
-  showToast('Note removed');
+async function deleteNotepadItem(id) {
+  try {
+    await api('DELETE', `/todos/${id}`);
+    _notepadItems = _notepadItems.filter(x => x.id !== id);
+    _renderNotepadList();
+    showToast('Note removed');
+  } catch(e) {
+    showToast('Failed to remove note');
+  }
 }
 
-function clearDoneNotes() {
-  const items = loadNotepadItems().filter(i => !i.done);
-  saveNotepadItems(items);
-  renderNotepad();
-  showToast('Cleared completed items ✓');
+async function clearDoneNotes() {
+  try {
+    await api('DELETE', '/todos/clear-completed');
+    _notepadItems = _notepadItems.filter(i => !i.completed);
+    _renderNotepadList();
+    showToast('Cleared completed items ✓');
+  } catch(e) {
+    showToast('Failed to clear completed notes');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3167,6 +3899,13 @@ function buildMastermindShell(panel) {
             <div class="form-field"><label>Team Members</label><input type="text" id="np-members" placeholder="e.g. Arjun, Priya, Ravi"></div>
           </div>
           <div class="form-field"><label>Description</label><textarea id="np-desc" rows="3" placeholder="Brief project description..."></textarea></div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>Project Progress (%)</label>
+              <input type="number" id="np-progress" min="0" max="100" value="0" placeholder="0–100">
+              <div style="font-size:10px;color:var(--text3);margin-top:4px">Enter 0–100. This exact value is shown in the ring graph.</div>
+            </div>
+          </div>
           <div class="assign-actions">
             <button class="btn-sm btn-gold" onclick="createProject()">Save Project</button>
             <button class="btn-sm btn-outline" onclick="document.getElementById('add-project-form').style.display='none'">Cancel</button>
@@ -3176,7 +3915,7 @@ function buildMastermindShell(panel) {
 
       <!-- Spreadsheet sync -->
       <div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;margin-bottom:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span style="font-size:12px;color:var(--text3);flex:1">📊 Sync from Excel: upload a spreadsheet with columns <em>Project Name, Category, Client Name, Status, Start Date, Team Members, Description</em></span>
+        <span style="font-size:12px;color:var(--text3);flex:1">📊 Sync from Excel: upload a spreadsheet with columns <em>Project Name, Category, Client Name, Status, Start Date, Team Members, Description, <strong>Progress</strong></em> — Progress column (0–100) sets the ring directly.</span>
         <label class="btn-sm btn-outline" style="font-size:12px;padding:7px 14px;cursor:pointer;color:var(--blue);border-color:rgba(56,189,248,0.3)">
           📂 Upload XLSX
           <input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleProjectSpreadsheet(this)">
@@ -3393,23 +4132,15 @@ function animatePgiRings(container) {
 }
 
 function projectRingPct(p) {
-  // Primary: use real task data from /api/project-progress if available
-  const prog = PGI_PROJECT_PROGRESS.find(
-    x => x.project_name.trim().toLowerCase() === (p.name || '').trim().toLowerCase()
-  );
-  if (prog) return prog.progress;
-
-  // Fallback: derive from project status when no task data uploaded yet
-  const s = (p.status || '').toLowerCase();
-  if (s === 'completed') return 100;
-  if (s === 'cancelled') return 0;
-  if (s === 'on hold')   return 35;
-  if (s === 'active')    return 65;
-  return 50;
+  // ── Single source of truth: progress_percentage stored from Excel / form. ──
+  // NEVER calculate from tasks, status, avg_wcp, or anything else.
+  const pct = Number(p.progress_percentage ?? 0);
+  console.log('[ring]', p.name, '-> progress_percentage:', pct);
+  return isNaN(pct) ? 0 : Math.round(Math.max(0, Math.min(100, pct)));
 }
 
 function projectTaskCounts(p) {
-  // Primary: use real task data from /api/project-progress
+  // Task counts for the informational metric boxes — never used for ring progress.
   const prog = PGI_PROJECT_PROGRESS.find(
     x => x.project_name.trim().toLowerCase() === (p.name || '').trim().toLowerCase()
   );
@@ -3421,10 +4152,7 @@ function projectTaskCounts(p) {
       pending:     prog.pending_tasks
     };
   }
-  // Fallback placeholder when no task sheet uploaded yet
-  const pct   = projectRingPct(p);
-  const total = 0;
-  return { total, done: 0, in_progress: 0, pending: 0 };
+  return { total: 0, done: 0, in_progress: 0, pending: 0 };
 }
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -3541,7 +4269,7 @@ function renderProjectCards() {
   );
 
   if (!filtered.length) {
-    container.innerHTML = `<div class="empty-state"><div class="e-icon">📊</div><p>No ${PGI_ACTIVE_PROJECT_TAB} projects${search ? ' matching "'+escapeHTML(search)+'"' : ' yet'}. ${currentUser?.role==='founder'?'Click "+ Add Project" to get started.':''}</p></div>`;
+    container.innerHTML = `<div class="empty-state"><div class="e-icon">📊</div><p>No ${PGI_ACTIVE_PROJECT_TAB} projects${search ? ' matching "'+escapeHTML(search)+'"' : ' yet'}. ${isFounderLike(currentUser)?'Click "+ Add Project" to get started.':''}</p></div>`;
     return;
   }
 
@@ -3566,18 +4294,18 @@ function renderProjectCards() {
       <div class="ring-pname">${escapeHTML(p.name)}</div>
       <div class="ring-pmeta">
         <span class="greendot"></span>
-        ${escapeHTML(assignee)}${members.length > 1 ? `<span style="color:var(--text3)"> +${members.length-1}</span>` : ''}
+        ${escapeHTML(assignee)}${members.length > 1 ? `<span style="color:var(--text3)"> +${members.length-1} more</span>` : ''}
       </div>
-      <div class="ring-pdue">${dueStr}</div>
+      <div class="ring-pdue">📅 ${p.start_date ? escapeHTML(p.start_date) : '—'}</div>
       <div class="ring-pill" style="${pillStyle}">${escapeHTML(p.status||'Active')}</div>
       <div class="ring-metrics">
         <div class="ring-m-box">
           <span class="ring-m-val" style="color:#5EE89A">${tasks.done}</span>
-          <span class="ring-m-lbl">Completed</span>
+          <span class="ring-m-lbl">Done</span>
         </div>
         <div class="ring-m-box">
           <span class="ring-m-val" style="color:#38BDF8">${tasks.in_progress}</span>
-          <span class="ring-m-lbl">In Progress</span>
+          <span class="ring-m-lbl">In&nbsp;Prog</span>
         </div>
         <div class="ring-m-box">
           <span class="ring-m-val" style="color:#FBBF24">${tasks.pending}</span>
@@ -3588,8 +4316,15 @@ function renderProjectCards() {
           <span class="ring-m-lbl">Total</span>
         </div>
       </div>
-      ${tasks.total === 0 ? `<div style="font-size:10px;color:var(--text3);margin-top:8px;text-align:center;opacity:0.7">Upload task sheet for live progress</div>` : ''}
-      ${currentUser?.role==='founder' ? `<button class="btn-tiny reject" style="font-size:11px;padding:4px 10px;margin-top:10px;align-self:flex-end" onclick="deleteProject(${p.id})">Delete</button>` : ''}
+      ${isFounderLike(currentUser) ? `<div class="ring-card-actions">
+        <label class="ring-card-upload" title="Upload task sheet for this project">
+          ⬆ Task Sheet
+          <input type="file" accept=".xlsx,.xls,.csv" style="display:none"
+            onchange="handleCardTaskUpload(this,'${escapeHTML(p.name).replace(/'/g,"\\'")}')">
+        </label>
+        <button class="ring-card-edit" onclick="editProject(${p.id})">✏ Edit</button>
+        <button class="ring-card-del" onclick="deleteProject(${p.id})">✕ Delete</button>
+      </div>` : ''}
     </div>`;
   }).join('');
 
@@ -3607,22 +4342,11 @@ function renderProjectSummaryRings() {
   const pending    = projects.filter(p => (p.status||'').toLowerCase() === 'active').length;
   const overdue    = projects.filter(p => (p.status||'').toLowerCase() === 'on hold').length;
 
-  // Overall completion: use real task data if available, else fall back to status-based
-  let overallPct;
-  if (PGI_PROJECT_PROGRESS.length > 0) {
-    // Match task progress records to projects in current tab
-    const matchedProgress = projects.map(p => {
-      const prog = PGI_PROJECT_PROGRESS.find(
-        x => x.project_name.trim().toLowerCase() === (p.name || '').trim().toLowerCase()
-      );
-      return prog ? prog.progress : projectRingPct(p);
-    });
-    overallPct = matchedProgress.length
-      ? Math.round(matchedProgress.reduce((s, v) => s + v, 0) / matchedProgress.length)
-      : 0;
-  } else {
-    overallPct = total ? Math.round(projects.reduce((s,p) => s + projectRingPct(p), 0) / total) : 0;
-  }
+  // Overall completion: average of progress_percentage from all projects in this tab.
+  // Uses projectRingPct() which reads p.progress_percentage — no task data involved.
+  const overallPct = total
+    ? Math.round(projects.reduce((s, p) => s + projectRingPct(p), 0) / total)
+    : 0;
 
   const efficiency = total ? Math.round(((completed + pending) / total) * 100) : 0;
 
@@ -3658,24 +4382,110 @@ function showAddProjectForm() {
 }
 
 async function createProject() {
-  const name    = document.getElementById('np-name').value.trim();
-  const cat     = document.getElementById('np-cat').value;
-  const client  = document.getElementById('np-client').value.trim();
-  const status  = document.getElementById('np-status').value;
-  const date    = document.getElementById('np-date').value;
-  const members = document.getElementById('np-members').value.trim();
-  const desc    = document.getElementById('np-desc').value.trim();
+  const name     = document.getElementById('np-name').value.trim();
+  const cat      = document.getElementById('np-cat').value;
+  const client   = document.getElementById('np-client').value.trim();
+  const status   = document.getElementById('np-status').value;
+  const date     = document.getElementById('np-date').value;
+  const members  = document.getElementById('np-members').value.trim();
+  const desc     = document.getElementById('np-desc').value.trim();
+  const pctRaw   = parseFloat(document.getElementById('np-progress')?.value ?? '0');
+  const progress = isNaN(pctRaw) ? 0 : Math.max(0, Math.min(100, pctRaw));
   if (!name) { showToast('Project name is required'); return; }
-  const res = await api('POST', '/projects', {name, category:cat, client_name:client, status, start_date:date, team_members:members, description:desc});
+  const res = await api('POST', '/projects', {name, category:cat, client_name:client, status, start_date:date, team_members:members, description:desc, progress_percentage:progress});
   if (res?.project) {
     PGI_PROJECTS.unshift(res.project);
     PGI_ACTIVE_PROJECT_TAB = cat;
     showToast('Project added ✓');
+    // ── Reset form fields so reopening always shows blank form ──
+    document.getElementById('np-name').value     = '';
+    document.getElementById('np-cat').value      = 'Government';
+    document.getElementById('np-client').value   = '';
+    document.getElementById('np-status').value   = 'Active';
+    document.getElementById('np-date').value     = '';
+    document.getElementById('np-members').value  = '';
+    document.getElementById('np-desc').value     = '';
+    document.getElementById('np-progress').value = '0';
     document.getElementById('add-project-form').style.display = 'none';
     renderProjectCards();
     // Update tab counts
     switchProjectTab(cat);
-  } else { showToast('Failed to save project'); }
+  } else { showToast(res?.error || 'Failed to save project'); }
+}
+
+// ── EDIT PROJECT ────────────────────────────────────────────
+function editProject(id) {
+  const p = PGI_PROJECTS.find(x => x.id === id);
+  if (!p) return;
+  document.getElementById('ep-id').value       = p.id;
+  document.getElementById('ep-name').value     = p.name || '';
+  document.getElementById('ep-status').value   = p.status || 'Active';
+  document.getElementById('ep-date').value     = p.start_date || '';
+  document.getElementById('ep-client').value   = p.client_name || '';
+  document.getElementById('ep-members').value  = p.team_members || '';
+  document.getElementById('ep-progress').value = p.progress_percentage ?? 0;
+  document.getElementById('ep-desc').value     = p.description || '';
+  document.getElementById('edit-project-modal').classList.add('open');
+}
+function closeEditProjectModal() {
+  document.getElementById('edit-project-modal').classList.remove('open');
+}
+async function saveEditProject() {
+  const id       = parseInt(document.getElementById('ep-id').value, 10);
+  const name     = document.getElementById('ep-name').value.trim();
+  const status   = document.getElementById('ep-status').value;
+  const date     = document.getElementById('ep-date').value;
+  const client   = document.getElementById('ep-client').value.trim();
+  const members  = document.getElementById('ep-members').value.trim();
+  const pctRaw   = parseFloat(document.getElementById('ep-progress').value);
+  const progress = isNaN(pctRaw) ? 0 : Math.max(0, Math.min(100, pctRaw));
+  const desc     = document.getElementById('ep-desc').value.trim();
+  if (!name) { showToast('Project name is required'); return; }
+  const res = await api('PUT', `/projects/${id}`, {
+    name, status, start_date: date, client_name: client,
+    team_members: members, progress_percentage: progress, description: desc
+  });
+  if (res?.project) {
+    const idx = PGI_PROJECTS.findIndex(x => x.id === id);
+    if (idx !== -1) PGI_PROJECTS[idx] = res.project;
+    closeEditProjectModal();
+    renderProjectCards();
+    showToast('✅ Project updated');
+  } else {
+    showToast(res?.error || '❌ Failed to update project');
+  }
+}
+
+// ── PER-CARD TASK SHEET UPLOAD ───────────────────────────────
+async function handleCardTaskUpload(input, projectName) {
+  const file = input.files[0];
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx', 'xls', 'csv'].includes(ext)) {
+    showToast('❌ Unsupported file type. Use .xlsx, .xls, or .csv');
+    input.value = '';
+    return;
+  }
+  showToast(`⏳ Uploading task sheet for "${projectName}"…`);
+  const formData = new FormData();
+  formData.append('file', file);
+  input.value = '';
+  try {
+    const res = await fetch(API_BASE + '/project-tasks/upload', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + API_TOKEN },
+      body: formData
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showToast(`✅ Task sheet synced! ${data.created} task${data.created !== 1 ? 's' : ''} loaded${data.skipped ? `, ${data.skipped} skipped` : ''}`);
+      await refreshProjectAnalytics();
+    } else {
+      showToast('❌ Upload failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    showToast('❌ Network error uploading task sheet');
+  }
 }
 
 async function deleteProject(id) {
@@ -3727,7 +4537,7 @@ function renderInternSection() {
     <td style="padding:10px;font-size:12px;color:var(--text2)">${escapeHTML(i.domain||'—')}</td>
     <td style="padding:10px;font-size:12px;color:var(--text3)">${escapeHTML(i.joining_date||'—')}</td>
     <td style="padding:10px"><span style="font-size:11px;font-weight:600;color:${statusColors[i.status]||'var(--text2)'}">${escapeHTML(i.status||'Active')}</span></td>
-    <td style="padding:10px;text-align:right">${currentUser?.role==='founder' ? `<button class="btn-tiny reject" style="font-size:11px;padding:4px 10px" onclick="deleteIntern(${i.id})">Remove</button>` : ''}</td>
+    <td style="padding:10px;text-align:right">${isFounderLike(currentUser) ? `<button class="btn-tiny reject" style="font-size:11px;padding:4px 10px" onclick="deleteIntern(${i.id})">Remove</button>` : ''}</td>
   </tr>`).join('');
 }
 
@@ -4166,6 +4976,99 @@ function ensureXLSX() {
 // Pre-load immediately so it's ready when user clicks Upload
 ensureXLSX().catch(() => {});
 </script>
+
+<!-- ── EDIT PROJECT MODAL ─────────────────────────────────── -->
+<div id="edit-project-modal" role="dialog" aria-modal="true" aria-label="Edit Project"
+     onclick="if(event.target===this)closeEditProjectModal()">
+  <div class="edit-proj-box">
+    <button class="edit-proj-close" onclick="closeEditProjectModal()" title="Close">✕</button>
+    <h3>✏ Edit Project</h3>
+    <input type="hidden" id="ep-id">
+    <div class="edit-proj-row">
+      <label>Project Name</label>
+      <input type="text" id="ep-name" placeholder="Project name">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="edit-proj-row">
+        <label>Status</label>
+        <select id="ep-status">
+          <option>Active</option>
+          <option>Completed</option>
+          <option>On Hold</option>
+          <option>Cancelled</option>
+        </select>
+      </div>
+      <div class="edit-proj-row">
+        <label>Start Date</label>
+        <input type="date" id="ep-date">
+      </div>
+    </div>
+    <div class="edit-proj-row">
+      <label>Client Name</label>
+      <input type="text" id="ep-client" placeholder="Client or organisation">
+    </div>
+    <div class="edit-proj-row">
+      <label>Team Members <span style="font-weight:400;text-transform:none;letter-spacing:0">(comma-separated)</span></label>
+      <input type="text" id="ep-members" placeholder="Alice, Bob, Carol">
+    </div>
+    <div class="edit-proj-row">
+      <label>Progress % <span style="font-weight:400;text-transform:none;letter-spacing:0">(0 – 100)</span></label>
+      <input type="number" id="ep-progress" min="0" max="100" placeholder="0–100">
+      <div class="edit-proj-progress-hint">This value drives the ring graph directly.</div>
+    </div>
+    <div class="edit-proj-row">
+      <label>Description</label>
+      <textarea id="ep-desc" rows="2" placeholder="Optional notes…" style="resize:vertical"></textarea>
+    </div>
+    <div class="edit-proj-footer">
+      <button class="btn-sm btn-outline" onclick="closeEditProjectModal()">Cancel</button>
+      <button class="btn-sm btn-gold" onclick="saveEditProject()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── VISIONBOARD GOALS MODAL ────────────────────────────── -->
+<div id="vb-goals-modal" role="dialog" aria-modal="true" aria-label="Edit Visionboard Goals"
+     onclick="if(event.target===this)closeVbGoalsModal()">
+  <div class="vb-goals-box">
+    <button class="vb-goals-close" onclick="closeVbGoalsModal()" title="Close">✕</button>
+    <h3>⚙ Edit Visionboard Goals</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="vb-goal-row">
+        <label>Employee Recruitment Goal</label>
+        <input type="number" id="vbg-emp-goal" min="1" placeholder="e.g. 15">
+      </div>
+      <div class="vb-goal-row">
+        <label>Intern Recruitment Goal</label>
+        <input type="number" id="vbg-intern-goal" min="1" placeholder="e.g. 40">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="vb-goal-row">
+        <label>Internships Offered (Current)</label>
+        <input type="number" id="vbg-intship-cur" min="0" placeholder="e.g. 85">
+      </div>
+      <div class="vb-goal-row">
+        <label>Internships Offered (Goal)</label>
+        <input type="number" id="vbg-intship-goal" min="1" placeholder="e.g. 200">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="vb-goal-row">
+        <label>Certifications Offered (Current)</label>
+        <input type="number" id="vbg-cert-cur" min="0" placeholder="e.g. 40">
+      </div>
+      <div class="vb-goal-row">
+        <label>Certifications Offered (Goal)</label>
+        <input type="number" id="vbg-cert-goal" min="1" placeholder="e.g. 150">
+      </div>
+    </div>
+    <div class="vb-goals-footer">
+      <button class="btn-sm btn-outline" onclick="closeVbGoalsModal()">Cancel</button>
+      <button class="btn-sm btn-gold" onclick="applyVbGoals()">Save Goals</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
