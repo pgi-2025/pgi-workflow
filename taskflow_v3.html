@@ -2790,7 +2790,7 @@ function updateSidebarAttendance() {
   const all  = getNonFounders();
   if (!all.length) { list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:4px">No staff added yet</div>'; return; }
   list.innerHTML = all.slice(0,12).map(u => {
-    const s = ATTENDANCE[u.id]||'absent';
+    const s = ATTENDANCE[u.id]?.status || 'absent';
     return `<div class="att-mini-row"><div class="att-mini-dot" style="background:${s==='present'?'var(--green)':'var(--red)'}"></div><div class="att-mini-name">${u.name.split(' ')[0]}</div><span class="att-mini-status" style="color:${s==='present'?'var(--green)':'var(--red)'}">${s==='present'?'IN':'OUT'}</span></div>`;
   }).join('');
 }
@@ -2838,7 +2838,7 @@ function renderTeamDetail(teamId) {
     <div style="margin-bottom:20px"><div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">${team.name}</div><div style="font-size:13px;color:var(--text2)">${team.desc}</div></div>
     <div class="section-header"><div class="section-title">Members (${mems.length})</div></div>
     <div class="members-list">${!mems.length?'<div class="empty-state" style="padding:24px"><p>No members yet</p></div>':mems.map(m=>{
-      const tasks=TASKS.filter(t=>t.assignedTo===m.id); const done=tasks.filter(t=>t.status==='completed').length; const c=ac(m.id); const att=ATTENDANCE[m.id]||'absent';
+      const tasks=TASKS.filter(t=>t.assignedTo===m.id); const done=tasks.filter(t=>t.status==='completed').length; const c=ac(m.id); const att=ATTENDANCE[m.id]?.status || 'absent';
       return `<div class="member-row" onclick="viewMember('${m.id}')">
         <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c})">${m.initials}</div>
         <div class="member-info"><div class="member-name">${m.name}</div><div class="member-email">${m.email}</div></div>
