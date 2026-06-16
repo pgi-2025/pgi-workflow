@@ -14,6 +14,7 @@ from werkzeug.utils import secure_filename
 
 import os
 import datetime
+import datetime as dt_module
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -22,24 +23,21 @@ import urllib.request
 import urllib.error
 import io
 import random
+import re
+import time
+import threading
+import base64
+import urllib.parse
 
-# ── APScheduler for daily motivation quotes ──────────────────
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     APSCHEDULER_AVAILABLE = True
 except ImportError:
     APSCHEDULER_AVAILABLE = False
-    print("[WARN] APScheduler not installed — daily quotes will not auto-send. Install with: pip install apscheduler")
+    print("[WARN] APScheduler not installed — scheduled jobs will not run.")
 
-
-# ─────────────────────────────────────────────
-# LOAD ENV
-# ─────────────────────────────────────────────
 load_dotenv()
 
-# ─────────────────────────────────────────────
-# APP CONFIG
-# ─────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app)
 
@@ -49,7 +47,7 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"]  = datetime.timedelta(hours=24)
 db_url = os.getenv("DATABASE_URL", "sqlite:///taskflow.db")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
-app.config["SQLALCHEMY_DATABASE_URI"]   = db_url
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
 
 if db_url.startswith("postgresql"):
     app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
@@ -82,9 +80,9 @@ class User(db.Model):
     department    = db.Column(db.String(100))
     domain        = db.Column(db.String(100))
     joining_date  = db.Column(db.String(50))
-    # NEW: Date of birth (YYYY-MM-DD) and profile photo path
     date_of_birth = db.Column(db.String(20))
     profile_photo = db.Column(db.Text)
+    active        = db.Column(db.Boolean, default=True, server_default="1")
 
 
 class Task(db.Model):
@@ -102,7 +100,6 @@ class Task(db.Model):
     proof_text       = db.Column(db.Text)
     proof_link       = db.Column(db.Text)
     rejection_reason = db.Column(db.Text)
-    # NEW: work completion percentage (0–100), set by founder
     work_completion_percentage = db.Column(db.Float, default=0.0)
 
 
@@ -112,38 +109,42 @@ class Message(db.Model):
     from_name = db.Column(db.String(200))
     fromId    = db.Column(db.String(100))
     text      = db.Column(db.Text)
-    time      = db.Column(db.String(100))        # kept for legacy display
-    timestamp = db.Column(db.String(50))          # NEW: ISO datetime e.g. "2026-06-10T09:14:00"
+    time      = db.Column(db.String(100))
+    timestamp = db.Column(db.String(50))
     channel   = db.Column(db.String(100), nullable=False, server_default='all')
 
 
 class DailyQuote(db.Model):
-    """Stores each day's selected motivational quote."""
     __tablename__ = "daily_quotes"
     id         = db.Column(db.Integer, primary_key=True)
-    date       = db.Column(db.String(20),  nullable=False, unique=True)  # "YYYY-MM-DD"
+    date       = db.Column(db.String(20),  nullable=False, unique=True)
     quote_text = db.Column(db.Text,        nullable=False)
     author     = db.Column(db.String(200), default="Unknown")
-    sent_at    = db.Column(db.String(100))  # timestamp when quote was dispatched
+    sent_at    = db.Column(db.String(100))
 
 
 class QuoteDeliveryLog(db.Model):
-    """Tracks per-user delivery to prevent duplicates."""
     __tablename__ = "quote_delivery_log"
-    id      = db.Column(db.Integer, primary_key=True)
-    date    = db.Column(db.String(20),  nullable=False)
-    userId  = db.Column(db.String(100), nullable=False)
-    channel = db.Column(db.String(20),  nullable=False)  # 'email' | 'whatsapp' | 'chat'
-    status  = db.Column(db.String(20),  default='sent')  # 'sent' | 'failed'
-    sent_at = db.Column(db.String(100))
+    id                = db.Column(db.Integer, primary_key=True)
+    date              = db.Column(db.String(20),  nullable=False)
+    userId            = db.Column(db.String(100), nullable=False)
+    channel           = db.Column(db.String(20),  nullable=False)
+    status            = db.Column(db.String(20),  default='sent')
+    sent_at           = db.Column(db.String(100))
+    error_message     = db.Column(db.Text)
+    phone             = db.Column(db.String(30))
+    provider_response = db.Column(db.Text)
 
 
 class Attendance(db.Model):
     __tablename__ = "attendance"
-    id     = db.Column(db.Integer, primary_key=True)
-    userId = db.Column(db.String(100), nullable=False)
-    status = db.Column(db.String(50),  nullable=False)
-    date   = db.Column(db.String(20),  nullable=False)
+    id            = db.Column(db.Integer, primary_key=True)
+    userId        = db.Column(db.String(100), nullable=False)
+    status        = db.Column(db.String(50),  nullable=False)
+    date          = db.Column(db.String(20),  nullable=False)
+    # NEW: exact timestamp when attendance was last toggled
+    checkin_time  = db.Column(db.String(30))   # ISO datetime string e.g. "2026-06-16T09:14:32"
+    checkout_time = db.Column(db.String(30))   # set when toggled absent after being present
 
 
 class MorningMessage(db.Model):
@@ -167,15 +168,10 @@ class Notification(db.Model):
 
 
 class BirthdayAlert(db.Model):
-    """
-    Deduplication table — one row per (employee_id, alert_year).
-    Prevents the scheduler from creating duplicate birthday notifications
-    if it fires more than once on the same day (e.g. restart, misfire retry).
-    """
     __tablename__ = "birthday_alerts"
     id          = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.String(100), nullable=False)
-    alert_year  = db.Column(db.Integer,     nullable=False)   # calendar year the alert was sent
+    alert_year  = db.Column(db.Integer,     nullable=False)
     sent_at     = db.Column(db.String(100))
     __table_args__ = (
         db.UniqueConstraint("employee_id", "alert_year", name="uq_birthday_alert"),
@@ -211,7 +207,7 @@ class Project(db.Model):
     team_members        = db.Column(db.Text)
     description         = db.Column(db.Text)
     created_at          = db.Column(db.String(100))
-    progress_percentage = db.Column(db.Float, default=0.0)  # Source of truth — set from Excel Progress column
+    progress_percentage = db.Column(db.Float, default=0.0)
 
 
 class Intern(db.Model):
@@ -235,10 +231,6 @@ class ProjectTask(db.Model):
     created_at   = db.Column(db.String(100))
 
 
-# ─────────────────────────────────────────────
-# AUDIT LOG MODEL  ← MOVED HERE before db.create_all()
-# ─────────────────────────────────────────────
-
 class AuditLog(db.Model):
     __tablename__ = "audit_logs"
     id           = db.Column(db.Integer, primary_key=True)
@@ -248,11 +240,6 @@ class AuditLog(db.Model):
 
 
 class DashboardGoal(db.Model):
-    """
-    Persistent key-value store for VisionBoard goals.
-    One row per key; values stored as strings for flexibility.
-    Keys: emp_goal, intern_goal, intship_goal, intship_cur, cert_goal, cert_cur
-    """
     __tablename__ = "dashboard_goals"
     key   = db.Column(db.String(100), primary_key=True)
     value = db.Column(db.String(100), nullable=False, default="0")
@@ -268,6 +255,9 @@ def now_str():
 def today_str():
     return datetime.datetime.now().strftime("%Y-%m-%d")
 
+def now_iso():
+    return datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
 def make_notif(userId, ntype, title, body):
     n = Notification(
         userId=userId, ntype=ntype,
@@ -279,7 +269,6 @@ def make_notif(userId, ntype, title, body):
 
 
 def is_founder_like(user):
-    """Returns True for both 'founder' and 'founder_assistant' roles."""
     return user and user.role in ("founder", "founder_assistant")
 
 
@@ -290,25 +279,29 @@ def is_founder_like(user):
 with app.app_context():
     db.create_all()
 
-    # Auto-migrate: add new columns to existing tables without losing data
     with db.engine.connect() as conn:
         migrations = [
-            "ALTER TABLE messages         ADD COLUMN channel    VARCHAR(100) DEFAULT 'all'",
-            "ALTER TABLE attendance       ADD COLUMN date       VARCHAR(20)",
-            "ALTER TABLE morning_messages ADD COLUMN date       VARCHAR(20)",
-            "ALTER TABLE users            ADD COLUMN department VARCHAR(100)",
-            "ALTER TABLE users            ADD COLUMN domain     VARCHAR(100)",
+            "ALTER TABLE messages         ADD COLUMN channel      VARCHAR(100) DEFAULT 'all'",
+            "ALTER TABLE attendance       ADD COLUMN date         VARCHAR(20)",
+            "ALTER TABLE morning_messages ADD COLUMN date         VARCHAR(20)",
+            "ALTER TABLE users            ADD COLUMN department   VARCHAR(100)",
+            "ALTER TABLE users            ADD COLUMN domain       VARCHAR(100)",
             "ALTER TABLE users            ADD COLUMN joining_date VARCHAR(50)",
-            # NEW columns
             "ALTER TABLE tasks            ADD COLUMN work_completion_percentage FLOAT DEFAULT 0",
-            "ALTER TABLE messages         ADD COLUMN timestamp  VARCHAR(50)",
+            "ALTER TABLE messages         ADD COLUMN timestamp    VARCHAR(50)",
             "ALTER TABLE projects         ADD COLUMN progress_percentage FLOAT DEFAULT 0",
-            # Date of birth and profile photo (safe migration — existing data untouched)
             "ALTER TABLE users            ADD COLUMN date_of_birth VARCHAR(20)",
             "ALTER TABLE users            ADD COLUMN profile_photo TEXT",
-            # Birthday alert dedup table (created by SQLAlchemy — migration only needed for new columns)
             "ALTER TABLE birthday_alerts  ADD COLUMN sent_at VARCHAR(100)",
-            # dashboard_goals uses SQLAlchemy create_all — no column migration needed
+            # NEW: attendance timestamp columns
+            "ALTER TABLE attendance       ADD COLUMN checkin_time  VARCHAR(30)",
+            "ALTER TABLE attendance       ADD COLUMN checkout_time VARCHAR(30)",
+            # NEW: WhatsApp delivery audit trail
+            "ALTER TABLE quote_delivery_log ADD COLUMN error_message TEXT",
+            "ALTER TABLE quote_delivery_log ADD COLUMN phone VARCHAR(30)",
+            "ALTER TABLE quote_delivery_log ADD COLUMN provider_response TEXT",
+            # NEW: active/disabled flag for users (controls WhatsApp quote delivery)
+            "ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE",
         ]
         for sql in migrations:
             try:
@@ -317,7 +310,14 @@ with app.app_context():
             except Exception:
                 conn.rollback()
 
-    # Ensure profile photos upload directory exists
+        # Backfill: any user row created before the 'active' column existed
+        # should default to active rather than NULL.
+        try:
+            conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
     os.makedirs(os.path.join(os.path.dirname(__file__), "uploads", "profile_photos"), exist_ok=True)
 
 
@@ -336,9 +336,7 @@ def health():
 
 @app.route("/api/seed-update")
 def seed_update():
-
     founder = db.session.get(User, "founder")
-
     if not founder:
         founder = User(
             id="founder",
@@ -356,11 +354,11 @@ def seed_update():
         founder.initials = "LL"
 
     employees = [
-        dict(id="u_abinash",   email="abinashbolt@gmail.com",     name="Abinash R",          initials="AR", role="employee", team="technical"),
-        dict(id="u_rahul",     email="mail2rahul.mk@gmail.com",   name="Rahul M",             initials="RM", role="employee", team="technical"),
-        dict(id="u_amitesh",   email="amitesh4122005@gmail.com",  name="Amitesh M",           initials="AM", role="employee", team="technical"),
-        dict(id="u_sadhana",   email="trainings.pgi@gmail.com",   name="Sadhana M",           initials="SM", role="employee", team="bizdev"),
-        dict(id="u_prassanna", email="kpkkumar1619@gmail.com",    name="Prassanna Kumar K",   initials="PK", role="employee", team="content"),
+        dict(id="u_abinash",   email="abinashbolt@gmail.com",     name="Abinash R",        initials="AR", role="employee", team="technical"),
+        dict(id="u_rahul",     email="mail2rahul.mk@gmail.com",   name="Rahul M",           initials="RM", role="employee", team="technical"),
+        dict(id="u_amitesh",   email="amitesh4122005@gmail.com",  name="Amitesh M",         initials="AM", role="employee", team="technical"),
+        dict(id="u_sadhana",   email="trainings.pgi@gmail.com",   name="Sadhana M",         initials="SM", role="employee", team="bizdev"),
+        dict(id="u_prassanna", email="kpkkumar1619@gmail.com",    name="Prassanna Kumar K", initials="PK", role="employee", team="content"),
     ]
 
     created = []
@@ -391,8 +389,6 @@ def login():
     password = data.get("password", "")
     role     = data.get("role")
 
-    # founder_assistant members log in through the Employee tab.
-    # When role=='employee', also accept founder_assistant accounts.
     if role == "employee":
         user = User.query.filter(
             db.func.lower(User.email) == email,
@@ -406,7 +402,6 @@ def login():
 
     if not user:
         return jsonify({"error": "User not found"}), 404
-
     if not check_password_hash(user.password, password):
         return jsonify({"error": "Invalid password"}), 401
 
@@ -439,7 +434,7 @@ def me():
 
 
 # ─────────────────────────────────────────────
-# USERS — LIST, CREATE, DELETE, EDIT
+# USERS
 # ─────────────────────────────────────────────
 
 @app.route("/api/users")
@@ -452,7 +447,8 @@ def get_users():
         "phone": u.phone, "department": u.department,
         "domain": u.domain, "joining_date": u.joining_date,
         "date_of_birth": u.date_of_birth,
-        "profile_photo": u.profile_photo
+        "profile_photo": u.profile_photo,
+        "active": u.active if u.active is not None else True
     } for u in User.query.all()])
 
 
@@ -472,7 +468,6 @@ def create_user():
     name     = data.get("name", "").strip()
     initials = data.get("initials") or "".join(w[0].upper() for w in name.split()[:2])
 
-    # Date of birth validation: must not be in the future
     dob = (data.get("date_of_birth") or "").strip() or None
     if dob:
         try:
@@ -496,7 +491,8 @@ def create_user():
         domain=(data.get("domain") or "").strip() or None,
         joining_date=(data.get("joining_date") or "").strip() or None,
         date_of_birth=dob,
-        profile_photo=(data.get("profile_photo") or "").strip() or None
+        profile_photo=(data.get("profile_photo") or "").strip() or None,
+        active=data.get("active", True)
     )
     db.session.add(user)
     db.session.commit()
@@ -507,7 +503,8 @@ def create_user():
         "phone": user.phone, "department": user.department,
         "domain": user.domain, "joining_date": user.joining_date,
         "date_of_birth": user.date_of_birth,
-        "profile_photo": user.profile_photo
+        "profile_photo": user.profile_photo,
+        "active": user.active
     }})
 
 
@@ -538,7 +535,6 @@ def update_user(user_id):
 
     data = request.get_json() or {}
 
-    # Email validation and duplicate check
     new_email = (data.get("email") or "").strip().lower()
     if new_email and new_email != user.email.lower():
         import re
@@ -552,14 +548,12 @@ def update_user(user_id):
             return jsonify({"error": "Email already in use by another user"}), 400
         user.email = new_email
 
-    # Name validation
     new_name = (data.get("name") or "").strip()
     if new_name:
         user.name = new_name
         words = new_name.split()
         user.initials = "".join(w[0].upper() for w in words[:2])
 
-    # Safe field updates
     if "role"         in data: user.role         = (data["role"]         or "").strip() or user.role
     if "team"         in data: user.team         = (data["team"]         or "").strip() or None
     if "specialty"    in data: user.specialty    = (data["specialty"]    or "").strip() or None
@@ -567,8 +561,8 @@ def update_user(user_id):
     if "department"   in data: user.department   = (data["department"]   or "").strip() or None
     if "domain"       in data: user.domain       = (data["domain"]       or "").strip() or None
     if "joining_date" in data: user.joining_date = (data["joining_date"] or "").strip() or None
+    if "active"       in data: user.active       = bool(data["active"])
 
-    # Date of birth: validate and update
     if "date_of_birth" in data:
         dob = (data["date_of_birth"] or "").strip() or None
         if dob:
@@ -580,11 +574,9 @@ def update_user(user_id):
                 return jsonify({"error": "Invalid date_of_birth format. Use YYYY-MM-DD"}), 400
         user.date_of_birth = dob
 
-    # Profile photo: allow update (path stored; upload handled by separate endpoint)
     if "profile_photo" in data:
         user.profile_photo = (data["profile_photo"] or "").strip() or None
 
-    # Audit log — now works because AuditLog table exists
     log_entry = AuditLog(
         action       = f"Founder updated {user.name}'s profile",
         performed_by = caller.name,
@@ -606,15 +598,14 @@ def update_user(user_id):
         "domain":       user.domain,
         "joining_date": user.joining_date,
         "date_of_birth": user.date_of_birth,
-        "profile_photo": user.profile_photo
+        "profile_photo": user.profile_photo,
+        "active":       user.active if user.active is not None else True
     }})
-
 
 
 @app.route("/api/users/<user_id>/upload-photo", methods=["POST"])
 @jwt_required()
 def upload_profile_photo(user_id):
-    """Upload a profile photo for a user. Stores file in uploads/profile_photos/."""
     caller = db.session.get(User, get_jwt_identity())
     if not caller or not is_founder_like(caller):
         return jsonify({"error": "Only founder can upload profile photos"}), 403
@@ -649,7 +640,6 @@ def upload_profile_photo(user_id):
 
 @app.route("/uploads/profile_photos/<filename>")
 def serve_profile_photo(filename):
-    """Serve uploaded profile photos."""
     safe = secure_filename(filename)
     path = os.path.join(os.path.dirname(__file__), "uploads", "profile_photos", safe)
     if not os.path.exists(path):
@@ -671,7 +661,7 @@ def get_audit_logs():
 
 
 # ─────────────────────────────────────────────
-# TASKS — GET, CREATE, UPDATE, DELETE
+# TASKS
 # ─────────────────────────────────────────────
 
 def task_to_dict(t):
@@ -702,7 +692,6 @@ def get_tasks():
 @jwt_required()
 def create_task():
     db.session.rollback()
-
     uid     = get_jwt_identity()
     founder = db.session.get(User, uid)
     if not founder:
@@ -712,16 +701,14 @@ def create_task():
 
     data        = request.get_json() or {}
     assignee_id = data.get("assignedTo", "").strip()
-
     if not assignee_id:
         return jsonify({"error": "Please select a team member to assign the task to"}), 400
 
     assignee = db.session.get(User, assignee_id)
     if not assignee:
-        return jsonify({"error": "Selected team member not found. Please refresh and try again."}), 404
+        return jsonify({"error": "Selected team member not found."}), 404
 
     try:
-        # Validate and clamp work_completion_percentage
         wcp_raw = data.get("work_completion_percentage", 0)
         try:
             wcp = float(wcp_raw)
@@ -743,16 +730,13 @@ def create_task():
             work_completion_percentage = wcp
         )
         db.session.add(task)
-
         make_notif(
             userId=assignee_id, ntype="task",
             title="New Task Assigned",
             body='"' + task.title + '" was assigned to you by ' + founder.name + '. Due: ' + (task.due or "TBD")
         )
-
         db.session.commit()
         return jsonify({"success": True, "task": task_to_dict(task)})
-
     except Exception as e:
         db.session.rollback()
         import traceback
@@ -793,7 +777,6 @@ def submit_proof(task_id):
             title="Proof Submitted",
             body=submitter.name + ' submitted proof for "' + task.title + '"'
         )
-
     db.session.commit()
     return jsonify({"success": True})
 
@@ -856,7 +839,6 @@ def delete_task(task_id):
 @app.route("/api/tasks/<task_id>/proof", methods=["DELETE"])
 @jwt_required()
 def delete_proof(task_id):
-    """Delete submitted proof. Allowed for: task owner OR founder/founder_assistant."""
     uid  = get_jwt_identity()
     user = db.session.get(User, uid)
     if not user:
@@ -866,14 +848,11 @@ def delete_proof(task_id):
     if not task:
         return jsonify({"error": "Task not found"}), 404
 
-    # Access control: only the assigned user or a founder-like user may delete proof
     if not is_founder_like(user) and task.assignedTo != uid:
-        return jsonify({"error": "Forbidden — you can only delete your own proof"}), 403
+        return jsonify({"error": "Forbidden"}), 403
 
-    # Delete any uploaded proof file from disk
     if task.proof_link:
         try:
-            # If proof_link is a local /uploads/ path (not an external URL), delete the file
             if task.proof_link.startswith("/uploads/"):
                 file_path = os.path.join(os.path.dirname(__file__), task.proof_link.lstrip("/"))
                 if os.path.isfile(file_path):
@@ -891,7 +870,6 @@ def delete_proof(task_id):
 @app.route("/api/tasks/<task_id>/work-percentage", methods=["PATCH"])
 @jwt_required()
 def update_work_percentage(task_id):
-    """Founder-only: update work_completion_percentage for a task."""
     user = db.session.get(User, get_jwt_identity())
     if not is_founder_like(user):
         return jsonify({"error": "Only founder can update work percentage"}), 403
@@ -929,7 +907,7 @@ def reset_completed_tasks():
 
 
 # ─────────────────────────────────────────────
-# MESSAGES — GET BY CHANNEL, SEND
+# MESSAGES
 # ─────────────────────────────────────────────
 
 @app.route("/api/messages")
@@ -940,7 +918,7 @@ def get_messages():
     return jsonify([{
         "id": m.id, "from": m.from_name, "fromId": m.fromId,
         "text": m.text, "time": m.time, "channel": m.channel,
-        "timestamp": m.timestamp or ""   # ISO datetime for WhatsApp-style grouping
+        "timestamp": m.timestamp or ""
     } for m in msgs])
 
 
@@ -959,7 +937,7 @@ def send_message():
         fromId    = uid,
         text      = data.get("text", "").strip(),
         time      = now.strftime("%I:%M %p"),
-        timestamp = now.strftime("%Y-%m-%dT%H:%M:%S"),   # ISO for grouping
+        timestamp = now.strftime("%Y-%m-%dT%H:%M:%S"),
         channel   = channel
     )
     db.session.add(msg)
@@ -1130,7 +1108,7 @@ def test_email():
 
     success, detail = send_morning_email(
         sender_name  = caller.name,
-        message_text = "TEST: This is a TaskFlow test email confirming that email delivery is working correctly on Render.",
+        message_text = "TEST: This is a TaskFlow test email confirming that email delivery is working correctly.",
         recipients   = [smtp_email]
     )
 
@@ -1160,7 +1138,6 @@ def get_ratings():
         for r in Rating.query.filter_by(date=today_str()).all()
     }
 
-    from sqlalchemy import desc as sa_desc
     thirty_days_ago = (datetime.datetime.utcnow() - datetime.timedelta(days=29)).strftime("%Y-%m-%d")
     history = [
         {"date": r.date, "userId": r.userId, "score": r.score}
@@ -1212,38 +1189,88 @@ def reset_ratings():
 
 
 # ─────────────────────────────────────────────
-# ATTENDANCE
+# ATTENDANCE  (with timestamps)
 # ─────────────────────────────────────────────
+
+def attendance_to_dict(att_row, user_obj=None):
+    """Serialize an Attendance row, enriching with user info if provided."""
+    d = {
+        "userId":        att_row.userId,
+        "status":        att_row.status,
+        "date":          att_row.date,
+        "checkin_time":  att_row.checkin_time  or "",
+        "checkout_time": att_row.checkout_time or "",
+    }
+    if user_obj:
+        d.update({
+            "name":     user_obj.name,
+            "initials": user_obj.initials,
+            "role":     user_obj.role,
+            "team":     user_obj.team,
+        })
+    return d
+
 
 @app.route("/api/attendance", methods=["GET"])
 @jwt_required()
 def get_attendance():
     today   = today_str()
-    records = {a.userId: a.status for a in Attendance.query.filter_by(date=today).all()}
+    records = {a.userId: a for a in Attendance.query.filter_by(date=today).all()}
     users   = User.query.filter(User.role != "founder").all()
-    return jsonify([{
-        "userId": u.id, "name": u.name, "initials": u.initials,
-        "role": u.role, "team": u.team,
-        "status": records.get(u.id, "absent"), "date": today
-    } for u in users])
+    result  = []
+    for u in users:
+        att = records.get(u.id)
+        result.append({
+            "userId":        u.id,
+            "name":          u.name,
+            "initials":      u.initials,
+            "role":          u.role,
+            "team":          u.team,
+            "status":        att.status        if att else "absent",
+            "date":          today,
+            "checkin_time":  att.checkin_time  if att else "",
+            "checkout_time": att.checkout_time if att else "",
+        })
+    return jsonify(result)
 
 
 @app.route("/api/attendance", methods=["PATCH"])
 @jwt_required()
 def mark_attendance():
-    data   = request.get_json()
-    uid    = data.get("userId")
-    status = data.get("status")
-    today  = today_str()
+    data      = request.get_json()
+    uid       = data.get("userId")
+    status    = data.get("status")
+    today     = today_str()
+    now_ts    = now_iso()
 
     att = Attendance.query.filter_by(userId=uid, date=today).first()
     if att:
-        att.status = status
+        prev_status = att.status
+        att.status  = status
+        # Record check-in time when toggling to present
+        if status == "present" and prev_status != "present":
+            att.checkin_time  = now_ts
+            att.checkout_time = None   # reset checkout on re-check-in
+        # Record checkout time when toggling to absent after being present
+        elif status == "absent" and prev_status == "present":
+            att.checkout_time = now_ts
     else:
-        db.session.add(Attendance(userId=uid, status=status, date=today))
+        checkin  = now_ts if status == "present" else None
+        checkout = None
+        att = Attendance(
+            userId=uid, status=status, date=today,
+            checkin_time=checkin, checkout_time=checkout
+        )
+        db.session.add(att)
 
     db.session.commit()
-    return jsonify({"success": True, "status": status, "date": today})
+    return jsonify({
+        "success":       True,
+        "status":        att.status,
+        "date":          today,
+        "checkin_time":  att.checkin_time  or "",
+        "checkout_time": att.checkout_time or "",
+    })
 
 
 @app.route("/api/attendance/history")
@@ -1254,7 +1281,11 @@ def attendance_history():
         return jsonify({"error": "Forbidden"}), 403
     records = Attendance.query.all()
     return jsonify([{
-        "userId": a.userId, "status": a.status, "date": a.date
+        "userId":        a.userId,
+        "status":        a.status,
+        "date":          a.date,
+        "checkin_time":  a.checkin_time  or "",
+        "checkout_time": a.checkout_time or "",
     } for a in records])
 
 
@@ -1297,7 +1328,7 @@ def mark_one_read(nid):
 
 
 # ─────────────────────────────────────────────
-# PROJECTS — CRUD
+# PROJECTS
 # ─────────────────────────────────────────────
 
 def project_to_dict(p):
@@ -1331,7 +1362,6 @@ def create_project():
     if cat not in ("Government", "Private", "B2C"):
         return jsonify({"error": "category must be Government, Private or B2C"}), 400
 
-    # Parse progress_percentage from form input
     try:
         pct = float(str(data.get("progress_percentage", 0)).replace("%", "").strip())
     except (TypeError, ValueError):
@@ -1357,16 +1387,12 @@ def create_project():
 @app.route("/api/projects/bulk", methods=["POST"])
 @jwt_required()
 def bulk_projects():
-    import logging
-    log = logging.getLogger("pgi.projects.bulk")
-
     caller = db.session.get(User, get_jwt_identity())
     if not is_founder_like(caller):
         return jsonify({"error": "Forbidden"}), 403
 
     data = request.get_json() or {}
     rows = data.get("projects", [])
-
     if not isinstance(rows, list):
         return jsonify({"error": "projects must be a list"}), 400
 
@@ -1382,7 +1408,6 @@ def bulk_projects():
                 continue
             valid_cats = {"government": "Government", "private": "Private", "b2c": "B2C"}
             cat_norm   = valid_cats.get(cat.lower(), "Government")
-            # Parse progress_percentage
             try:
                 pct = float(str(row.get("progress_percentage", row.get("progress", 0))).replace("%", "").strip())
                 pct = max(0.0, min(100.0, pct))
@@ -1465,11 +1490,9 @@ def upload_projects_xlsx():
             cat_raw = col(row, "Category", "category") or "Government"
             cat     = VALID_CATS.get(cat_raw.lower(), "Government")
 
-            # ── Read Progress column — the single source of truth ──
             raw_pct = row.get("Progress", row.get("progress", 0))
             try:
                 pct = float(str(raw_pct).replace("%", "").strip())
-                # Handle fraction style: 0.5 → 50
                 if 0 < pct <= 1.0:
                     pct = pct * 100
                 pct = max(0.0, min(100.0, pct))
@@ -1501,7 +1524,6 @@ def upload_projects_xlsx():
                 created_at=datetime.datetime.now().strftime("%b %d, %Y")
             ))
             created += 1
-            print(f"[IMPORT] {row['name']} -> {row['progress_percentage']}")
 
         db.session.commit()
         return jsonify({"success": True, "created": created, "skipped": skipped})
@@ -1534,8 +1556,6 @@ def update_project(pid):
             pct = max(0.0, min(100.0, pct))
         except (TypeError, ValueError):
             return jsonify({"error": "Invalid progress value"}), 400
-        if not (0 <= pct <= 100):
-            return jsonify({"error": "Progress must be between 0 and 100."}), 400
         p.progress_percentage = pct
     db.session.commit()
     return jsonify({"success": True, "project": project_to_dict(p)})
@@ -1556,7 +1576,7 @@ def delete_project(pid):
 
 
 # ─────────────────────────────────────────────
-# INTERNS ROSTER — CRUD
+# INTERNS ROSTER
 # ─────────────────────────────────────────────
 
 def intern_to_dict(i):
@@ -1593,7 +1613,6 @@ def bulk_interns():
         return jsonify({"error": "Forbidden"}), 403
     data = request.get_json() or {}
     rows = data.get("interns", [])
-
     if not isinstance(rows, list):
         return jsonify({"error": "interns must be a list"}), 400
 
@@ -1712,7 +1731,7 @@ def dashboard_stats():
 
 
 # ─────────────────────────────────────────────
-# DASHBOARD GOALS  (persistent settings)
+# DASHBOARD GOALS
 # ─────────────────────────────────────────────
 
 _GOAL_DEFAULTS = {
@@ -1724,29 +1743,60 @@ _GOAL_DEFAULTS = {
     "cert_cur":     0,
 }
 
-def _load_goals():
-    """Return goals dict merged with defaults; reads from DB."""
+GOAL_KEYS    = ["emp_goal", "intern_goal", "intship_goal", "intship_cur", "cert_goal", "cert_cur"]
+GOAL_DEFAULTS = {"emp_goal": "15", "intern_goal": "40", "intship_goal": "200",
+                 "intship_cur": "0", "cert_goal": "150", "cert_cur": "0"}
+
+
+def _load_goals_dict():
     rows = {r.key: r.value for r in DashboardGoal.query.all()}
     result = {}
-    for k, default in _GOAL_DEFAULTS.items():
+    for k in GOAL_KEYS:
         try:
-            result[k] = int(rows[k]) if k in rows else default
+            result[k] = int(rows.get(k, GOAL_DEFAULTS.get(k, "0")))
         except (ValueError, TypeError):
-            result[k] = default
+            result[k] = int(GOAL_DEFAULTS.get(k, "0"))
     return result
 
 
+@app.route("/api/dashboard/goals", methods=["GET"])
+@jwt_required()
+def get_dashboard_goals():
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    return jsonify(_load_goals_dict())
+
+
+@app.route("/api/dashboard/goals", methods=["PUT"])
+@jwt_required()
+def put_dashboard_goals():
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json() or {}
+    for k in GOAL_KEYS:
+        if k in data:
+            try:
+                val = str(int(data[k]))
+            except (ValueError, TypeError):
+                continue
+            row = db.session.get(DashboardGoal, k)
+            if row:
+                row.value = val
+            else:
+                db.session.add(DashboardGoal(key=k, value=val))
+    db.session.commit()
+    return jsonify({"success": True, "goals": _load_goals_dict()})
+
+
 # ─────────────────────────────────────────────
-# UPCOMING BIRTHDAYS  (alias for birthday-alerts)
+# UPCOMING BIRTHDAYS
 # ─────────────────────────────────────────────
 
 @app.route("/api/upcoming-birthdays")
 @jwt_required()
 def get_upcoming_birthdays():
-    """
-    Alias for /api/birthday-alerts — returns employees whose birthday
-    falls within the next 7 days. Founder-like accounts only.
-    """
     caller = db.session.get(User, get_jwt_identity())
     if not is_founder_like(caller):
         return jsonify({"error": "Forbidden"}), 403
@@ -1786,9 +1836,8 @@ def get_upcoming_birthdays():
     return jsonify({"alerts": results})
 
 
-
 # ─────────────────────────────────────────────
-# PROJECT TASKS — EXCEL UPLOAD & PROGRESS API
+# PROJECT TASKS & PROGRESS
 # ─────────────────────────────────────────────
 
 @app.route("/api/project-tasks/upload", methods=["POST"])
@@ -1813,7 +1862,6 @@ def upload_project_tasks():
         import pandas as pd
 
         file_bytes = file.read()
-
         if ext == "csv":
             df = pd.read_csv(io.BytesIO(file_bytes))
         else:
@@ -1860,19 +1908,6 @@ def upload_project_tasks():
             status_raw = col(row_dict, "Status", "status", "STATUS") or "Pending"
             status     = VALID_STATUSES.get(status_raw.lower(), "Pending")
 
-            # Read work_completion_percentage from the LAST column
-            wcp = 0.0
-            cols_list = list(df.columns)
-            if cols_list:
-                last_col_name = cols_list[-1]
-                last_val = row_dict.get(last_col_name, "")
-                try:
-                    parsed = float(str(last_val).strip())
-                    if 0 <= parsed <= 100:
-                        wcp = parsed
-                except (ValueError, TypeError):
-                    wcp = 0.0
-
             new_rows.append(ProjectTask(
                 project_name = project_name,
                 task_name    = task_name,
@@ -1909,8 +1944,6 @@ def get_project_progress():
 
     from sqlalchemy import func, case
 
-    # Task counts — for informational display in the metric boxes only.
-    # They NEVER affect progress_percentage.
     task_rows = (
         db.session.query(
             ProjectTask.project_name,
@@ -1924,16 +1957,14 @@ def get_project_progress():
     )
     task_map = {r.project_name: r for r in task_rows}
 
-    # Progress comes exclusively from Project.progress_percentage (set by Excel import).
     projects = Project.query.order_by(Project.name).all()
     result = []
     for p in projects:
-        tr = task_map.get(p.name)
+        tr  = task_map.get(p.name)
         pct = float(p.progress_percentage or 0)
-        print(f"[API] {p.name} -> progress_percentage={pct}")
         result.append({
             "project_name":        p.name,
-            "progress_percentage": pct,           # ← ring uses this field
+            "progress_percentage": pct,
             "total_tasks":         int(tr.total_tasks      or 0) if tr else 0,
             "completed_tasks":     int(tr.completed_tasks  or 0) if tr else 0,
             "in_progress_tasks":   int(tr.in_progress_tasks or 0) if tr else 0,
@@ -1944,7 +1975,7 @@ def get_project_progress():
 
 
 # ─────────────────────────────────────────────
-# DAILY MOTIVATION QUOTES — Internal Library (100 quotes, expandable)
+# DAILY MOTIVATION QUOTES
 # ─────────────────────────────────────────────
 
 MOTIVATION_QUOTES = [
@@ -1973,96 +2004,55 @@ MOTIVATION_QUOTES = [
     {"text": "There are no secrets to success. It is the result of preparation, hard work, and learning from failure.", "author": "Colin Powell"},
     {"text": "Success is not the key to happiness. Happiness is the key to success.", "author": "Albert Schweitzer"},
     {"text": "The only place where success comes before work is in the dictionary.", "author": "Vidal Sassoon"},
-    {"text": "The road to success and the road to failure are almost exactly the same.", "author": "Colin R. Davis"},
-    {"text": "I attribute my success to this: I never gave or took any excuse.", "author": "Florence Nightingale"},
-    {"text": "If you are not willing to risk the usual, you will have to settle for the ordinary.", "author": "Jim Rohn"},
     {"text": "In order to succeed, we must first believe that we can.", "author": "Nikos Kazantzakis"},
-    {"text": "The secret to success is to know something nobody else knows.", "author": "Aristotle Onassis"},
     {"text": "If you can dream it, you can do it.", "author": "Walt Disney"},
     {"text": "The best time to plant a tree was 20 years ago. The second best time is now.", "author": "Chinese Proverb"},
-    {"text": "An unexamined life is not worth living.", "author": "Socrates"},
-    {"text": "Spread love everywhere you go. Let no one ever come to you without leaving happier.", "author": "Mother Teresa"},
+    {"text": "Spread love everywhere you go.", "author": "Mother Teresa"},
     {"text": "When you reach the end of your rope, tie a knot in it and hang on.", "author": "Franklin D. Roosevelt"},
-    {"text": "Always remember that you are absolutely unique. Just like everyone else.", "author": "Margaret Mead"},
     {"text": "Don't judge each day by the harvest you reap but by the seeds that you plant.", "author": "Robert Louis Stevenson"},
-    {"text": "The best and most beautiful things in the world cannot be seen or even touched — they must be felt with the heart.", "author": "Helen Keller"},
     {"text": "It is during our darkest moments that we must focus to see the light.", "author": "Aristotle"},
-    {"text": "Whoever is happy will make others happy too.", "author": "Anne Frank"},
     {"text": "Do not go where the path may lead, go instead where there is no path and leave a trail.", "author": "Ralph Waldo Emerson"},
-    {"text": "You will face many defeats in life, but never let yourself be defeated.", "author": "Maya Angelou"},
     {"text": "The greatest glory in living lies not in never falling, but in rising every time we fall.", "author": "Nelson Mandela"},
-    {"text": "In the end, it's not the years in your life that count. It's the life in your years.", "author": "Abraham Lincoln"},
-    {"text": "Never let the fear of striking out keep you from playing the game.", "author": "Babe Ruth"},
     {"text": "Life is either a daring adventure or nothing at all.", "author": "Helen Keller"},
     {"text": "Many of life's failures are people who did not realize how close they were to success when they gave up.", "author": "Thomas A. Edison"},
-    {"text": "You have brains in your head. You have feet in your shoes. You can steer yourself any direction you choose.", "author": "Dr. Seuss"},
-    {"text": "If life were predictable it would cease to be life, and be without flavor.", "author": "Eleanor Roosevelt"},
-    {"text": "If you look at what you have in life, you'll always have more.", "author": "Oprah Winfrey"},
-    {"text": "If you want your life to be a magnificent story, then begin by realizing that you are the author.", "author": "Mark Houlahan"},
-    {"text": "You don't have to be great to start, but you have to start to be great.", "author": "Zig Ziglar"},
-    {"text": "The only limit to our realization of tomorrow will be our doubts of today.", "author": "Franklin D. Roosevelt"},
-    {"text": "It is never too late to be what you might have been.", "author": "George Eliot"},
-    {"text": "Life is what happens when you're busy making other plans.", "author": "John Lennon"},
-    {"text": "The way to get started is to quit talking and begin doing.", "author": "Walt Disney"},
-    {"text": "You miss 100% of the shots you don't take.", "author": "Wayne Gretzky"},
-    {"text": "Whether you think you can or think you can't, you're right.", "author": "Henry Ford"},
-    {"text": "I have not failed. I've just found 10,000 ways that won't work.", "author": "Thomas A. Edison"},
-    {"text": "A person who never made a mistake never tried anything new.", "author": "Albert Einstein"},
-    {"text": "The real test is not whether you avoid this failure, because you won't. It's whether you let it harden or shame you into inaction, or whether you learn from it.", "author": "Barack Obama"},
-    {"text": "Knowing is not enough; we must apply. Wishing is not enough; we must do.", "author": "Johann Wolfgang Von Goethe"},
-    {"text": "Imagine your life is perfect in every respect; what would it look like?", "author": "Brian Tracy"},
-    {"text": "We generate fears while we sit. We overcome them by action.", "author": "Dr. Henry Link"},
-    {"text": "Whether you want to call it grit, mental toughness or resilience, the ability to keep moving forward when you want to quit is perhaps the most important factor in achieving your goals.", "author": "Jack Canfield"},
-    {"text": "The man who has confidence in himself gains the confidence of others.", "author": "Hasidic Proverb"},
     {"text": "The only way to do great work is to love what you do.", "author": "Steve Jobs"},
     {"text": "If you can't explain it simply, you don't understand it well enough.", "author": "Albert Einstein"},
     {"text": "Definiteness of purpose is the starting point of all achievement.", "author": "W. Clement Stone"},
     {"text": "If you're going through hell, keep going.", "author": "Winston Churchill"},
-    {"text": "We must balance conspicuous consumption with conscious capitalism.", "author": "Kevin Kruse"},
-    {"text": "Leadership is the capacity to translate vision into reality.", "author": "Warren Bennis"},
     {"text": "Always do your best. What you plant now, you will harvest later.", "author": "Og Mandino"},
-    {"text": "You've got to get up every morning with determination if you're going to go to bed with satisfaction.", "author": "George Lorimer"},
-    {"text": "To see what is right and not to do it is want of courage, or of principle.", "author": "Confucius"},
-    {"text": "Reading is to the mind, as exercise is to the body.", "author": "Brian Tracy"},
-    {"text": "Fake it until you make it! Act as if you had all the confidence you require until it becomes your reality.", "author": "Brian Tracy"},
-    {"text": "The most common way people give up their power is by thinking they don't have any.", "author": "Alice Walker"},
     {"text": "The mind is everything. What you think you become.", "author": "Buddha"},
-    {"text": "The best time for new beginnings is now.", "author": "Unknown"},
     {"text": "Start where you are. Use what you have. Do what you can.", "author": "Arthur Ashe"},
     {"text": "When the going gets tough, the tough get going.", "author": "Joe Kennedy"},
     {"text": "It does not matter how slowly you go as long as you do not stop.", "author": "Confucius"},
     {"text": "If you want to lift yourself up, lift up someone else.", "author": "Booker T. Washington"},
-    {"text": "A goal is not always meant to be reached, it often serves simply as something to aim at.", "author": "Bruce Lee"},
     {"text": "We must accept finite disappointment, but never lose infinite hope.", "author": "Martin Luther King Jr."},
-    {"text": "Once you choose hope, anything's possible.", "author": "Christopher Reeve"},
     {"text": "Every day is a new beginning. Take a deep breath and start again.", "author": "Unknown"},
     {"text": "Motivation is what gets you started. Habit is what keeps you going.", "author": "Jim Ryun"},
     {"text": "The difference between ordinary and extraordinary is that little extra.", "author": "Jimmy Johnson"},
-    {"text": "What lies behind you and what lies in front of you, pales in comparison to what lies inside of you.", "author": "Ralph Waldo Emerson"},
     {"text": "With the new day comes new strength and new thoughts.", "author": "Eleanor Roosevelt"},
     {"text": "Energy and persistence conquer all things.", "author": "Benjamin Franklin"},
-    {"text": "How wonderful it is that nobody need wait a single moment before starting to improve the world.", "author": "Anne Frank"},
     {"text": "Success comes from consistency, focus and never giving up.", "author": "Unknown"},
     {"text": "Your limitation—it's only your imagination.", "author": "Unknown"},
     {"text": "Sometimes later becomes never. Do it now.", "author": "Unknown"},
-    {"text": "Great things never come from comfort zones.", "author": "Unknown"},
     {"text": "Dream it. Wish it. Do it.", "author": "Unknown"},
-    {"text": "Stay foolish to stay sane.", "author": "Maxime Lagacé"},
     {"text": "When nothing goes right, go left.", "author": "Unknown"},
+    {"text": "You miss 100% of the shots you don't take.", "author": "Wayne Gretzky"},
+    {"text": "Whether you think you can or think you can't, you're right.", "author": "Henry Ford"},
+    {"text": "I have not failed. I've just found 10,000 ways that won't work.", "author": "Thomas A. Edison"},
+    {"text": "A person who never made a mistake never tried anything new.", "author": "Albert Einstein"},
+    {"text": "The way to get started is to quit talking and begin doing.", "author": "Walt Disney"},
+    {"text": "Reading is to the mind, as exercise is to the body.", "author": "Brian Tracy"},
+    {"text": "The most common way people give up their power is by thinking they don't have any.", "author": "Alice Walker"},
+    {"text": "Once you choose hope, anything's possible.", "author": "Christopher Reeve"},
 ]
 
 
 def get_or_create_daily_quote():
-    """
-    Return today's quote (from DB if already set, else pick a new one).
-    Ensures no repeat from yesterday.
-    """
-    today = today_str()
+    today    = today_str()
     existing = DailyQuote.query.filter_by(date=today).first()
     if existing:
         return existing
 
-    # Find yesterday's quote to avoid repeating
     yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     yesterday_q = DailyQuote.query.filter_by(date=yesterday).first()
     avoid_text  = yesterday_q.quote_text if yesterday_q else None
@@ -2084,7 +2074,6 @@ def get_or_create_daily_quote():
 
 
 def send_daily_quote_email(recipient_email, quote_text, author):
-    """Send the daily motivational quote via email to a single recipient."""
     brevo_key  = os.getenv("BREVO_API_KEY", "").strip()
     smtp_email = os.getenv("SMTP_EMAIL", "").strip()
     smtp_pass  = os.getenv("SMTP_PASSWORD", "").strip()
@@ -2149,47 +2138,184 @@ def send_daily_quote_email(recipient_email, quote_text, author):
         return False
 
 
-def send_daily_quote_whatsapp(phone, quote_text, author):
+def normalize_phone_e164(phone):
     """
-    Send quote via WhatsApp Business API.
-    Requires WHATSAPP_API_URL and WHATSAPP_API_TOKEN in .env.
+    Normalize a raw phone string to E.164 format (+<countrycode><number>).
+    Returns (normalized_number_or_None, error_reason_or_None).
     """
-    wa_url   = os.getenv("WHATSAPP_API_URL", "").strip()
-    wa_token = os.getenv("WHATSAPP_API_TOKEN", "").strip()
-    if not wa_url or not wa_token or not phone:
-        return False
+    if not phone or not phone.strip():
+        return None, "no_phone"
 
-    body_text = f"🌞 Good Morning!\n\n\"{quote_text}\"\n— {author}\n\nHave a productive day!\n— PGI TaskFlow"
-    payload   = json.dumps({
-        "to":   phone,
+    cleaned = re.sub(r"[\s\-\.\(\)]", "", phone.strip())
+    if not cleaned.startswith("+"):
+        cleaned = "+" + cleaned.lstrip("+")
+
+    # E.164: '+' followed by 8–15 digits, first digit 1-9
+    if not re.fullmatch(r"\+[1-9]\d{7,14}", cleaned):
+        return None, "invalid_format"
+
+    return cleaned, None
+
+
+def build_daily_quote_message(quote_text):
+    """Exact WhatsApp message template — the quote is inserted verbatim, untouched."""
+    return (
+        "🌞 Good Morning!\n\n"
+        "✨ Daily Motivation\n\n"
+        f"\"{quote_text}\"\n\n"
+        "— Plant Green Inertia 🌿\n\n"
+        "Have an amazing and productive day!"
+    )
+
+
+def _send_whatsapp_via_meta(phone_clean, message):
+    """
+    Send via Meta WhatsApp Cloud API.
+    Reads WHATSAPP_API_TOKEN + WHATSAPP_PHONE_NUMBER_ID (preferred), or a full
+    WHATSAPP_API_URL override for backward compatibility / self-hosted gateways.
+    """
+    wa_token = os.getenv("WHATSAPP_API_TOKEN", "").strip()
+    wa_url   = os.getenv("WHATSAPP_API_URL", "").strip()
+    phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+
+    if not wa_url:
+        if not phone_number_id:
+            return False, "not_configured", None
+        api_version = os.getenv("WHATSAPP_API_VERSION", "v18.0").strip() or "v18.0"
+        wa_url = f"https://graph.facebook.com/{api_version}/{phone_number_id}/messages"
+
+    if not wa_token:
+        return False, "not_configured", None
+
+    payload = json.dumps({
+        "messaging_product": "whatsapp",
+        "to":   phone_clean,
         "type": "text",
-        "text": {"body": body_text}
+        "text": {"body": message}
     }).encode("utf-8")
+
     req = urllib.request.Request(
         wa_url,
         data=payload,
-        headers={"Authorization": f"Bearer {wa_token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {wa_token}",
+            "Content-Type":  "application/json",
+        },
         method="POST"
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            resp.read()
-        return True
+            resp_body = resp.read().decode(errors="replace")
+        return True, "sent", resp_body[:500]
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode(errors="replace")
+        print(f"[QUOTE WA/meta] HTTPError {e.code} for {phone_clean}: {err_body}")
+        return False, f"http_{e.code}", err_body[:500]
     except Exception as e:
-        print(f"[QUOTE WA] Failed for {phone}: {e}")
-        return False
+        print(f"[QUOTE WA/meta] Error for {phone_clean}: {e}")
+        return False, str(e), None
+
+
+def _send_whatsapp_via_twilio(phone_clean, message):
+    """
+    Send via Twilio's WhatsApp Business API, using the Founder's approved
+    WhatsApp-enabled Twilio sender number (TWILIO_WHATSAPP_FROM).
+    """
+    sid         = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    token       = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    from_number = os.getenv("TWILIO_WHATSAPP_FROM", "").strip()
+
+    if not sid or not token or not from_number:
+        return False, "not_configured", None
+
+    if not from_number.startswith("whatsapp:"):
+        from_number = "whatsapp:" + from_number
+
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
+    body = urllib.parse.urlencode({
+        "From": from_number,
+        "To":   f"whatsapp:{phone_clean}",
+        "Body": message
+    }).encode("utf-8")
+
+    creds = base64.b64encode(f"{sid}:{token}".encode()).decode()
+    req = urllib.request.Request(
+        url,
+        data=body,
+        headers={
+            "Authorization": f"Basic {creds}",
+            "Content-Type":  "application/x-www-form-urlencoded",
+        },
+        method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp_body = resp.read().decode(errors="replace")
+        return True, "sent", resp_body[:500]
+    except urllib.error.HTTPError as e:
+        err_body = e.read().decode(errors="replace")
+        print(f"[QUOTE WA/twilio] HTTPError {e.code} for {phone_clean}: {err_body}")
+        return False, f"http_{e.code}", err_body[:500]
+    except Exception as e:
+        print(f"[QUOTE WA/twilio] Error for {phone_clean}: {e}")
+        return False, str(e), None
+
+
+def _send_whatsapp_attempt(phone_clean, message):
+    """Single attempt, routed to the configured provider. No retries here."""
+    provider = os.getenv("WHATSAPP_PROVIDER", "meta").strip().lower()
+    if provider == "twilio":
+        return _send_whatsapp_via_twilio(phone_clean, message)
+    elif provider == "meta":
+        return _send_whatsapp_via_meta(phone_clean, message)
+    else:
+        return False, "unknown_provider", None
+
+
+# Failure reasons that will never succeed on retry — no point burning attempts on them.
+_NON_RETRYABLE_WA_REASONS = ("no_phone", "not_configured", "invalid_format", "unknown_provider")
+
+
+def send_daily_quote_whatsapp(phone, quote_text, author=None, max_retries=3):
+    """
+    Send motivational quote via the configured WhatsApp provider (Meta Cloud API
+    or Twilio), from the Founder's WhatsApp Business number.
+    Validates/normalizes the number to E.164, then retries transient failures
+    up to `max_retries` times with exponential backoff (1s, 2s, 4s ...).
+    Permanent failures (bad number, missing config) are not retried.
+    Returns (success: bool, reason: str, provider_response: str|None).
+    """
+    phone_clean, err = normalize_phone_e164(phone)
+    if err:
+        return False, err, None
+
+    message = build_daily_quote_message(quote_text)
+
+    reason, provider_response = "unknown_error", None
+    for attempt in range(max_retries):
+        ok, reason, provider_response = _send_whatsapp_attempt(phone_clean, message)
+        if ok:
+            return True, "sent", provider_response
+        if reason in _NON_RETRYABLE_WA_REASONS:
+            return False, reason, provider_response
+        if attempt < max_retries - 1:
+            backoff = 2 ** attempt  # 1s, 2s, 4s
+            print(f"[QUOTE WA] Retry {attempt + 1}/{max_retries} for {phone_clean} in {backoff}s ({reason})")
+            time.sleep(backoff)
+
+    return False, reason, provider_response
 
 
 def dispatch_daily_quote():
     """
-    Main scheduler job: pick today's quote, send to all users,
-    insert system message into all channels, create notifications.
+    Core job: pick today's quote, send to all users via email, WhatsApp and chat.
+    Deduplication prevents duplicate sends even if the scheduler fires multiple times.
     """
     with app.app_context():
-        today = today_str()
-        now   = datetime.datetime.now()
+        today   = today_str()
+        now     = datetime.datetime.now()
         now_str_val = now.strftime("%I:%M %p")
-        now_iso     = now.strftime("%Y-%m-%dT%H:%M:%S")
+        now_iso_val = now.strftime("%Y-%m-%dT%H:%M:%S")
 
         dq = get_or_create_daily_quote()
         quote_text = dq.quote_text
@@ -2197,7 +2323,7 @@ def dispatch_daily_quote():
 
         users = User.query.all()
 
-        # ── 1. Insert system message into 'all' channel (once per day) ──
+        # ── 1. Insert system chat message (once per day) ──────────
         already_in_chat = QuoteDeliveryLog.query.filter_by(
             date=today, userId="__system__", channel="chat"
         ).first()
@@ -2215,16 +2341,16 @@ def dispatch_daily_quote():
                 fromId    = "system",
                 text      = chat_text,
                 time      = now_str_val,
-                timestamp = now_iso,
+                timestamp = now_iso_val,
                 channel   = "all"
             )
             db.session.add(sys_msg)
             db.session.add(QuoteDeliveryLog(
                 date=today, userId="__system__", channel="chat",
-                status="sent", sent_at=now_iso
+                status="sent", sent_at=now_iso_val
             ))
 
-        # ── 2. Create notification for each user ──
+        # ── 2. In-app notification per user ───────────────────────
         for user in users:
             already_notif = QuoteDeliveryLog.query.filter_by(
                 date=today, userId=user.id, channel="notification"
@@ -2233,15 +2359,15 @@ def dispatch_daily_quote():
                 make_notif(
                     userId=user.id,
                     ntype="motivation",
-                    title="✨ New Daily Motivation Available",
+                    title="✨ Daily Motivation",
                     body=f'"{quote_text}" — {author}'
                 )
                 db.session.add(QuoteDeliveryLog(
                     date=today, userId=user.id, channel="notification",
-                    status="sent", sent_at=now_iso
+                    status="sent", sent_at=now_iso_val
                 ))
 
-        # ── 3. Send email ──
+        # ── 3. Email delivery ─────────────────────────────────────
         for user in users:
             if not user.email:
                 continue
@@ -2253,28 +2379,69 @@ def dispatch_daily_quote():
             ok = send_daily_quote_email(user.email, quote_text, author)
             db.session.add(QuoteDeliveryLog(
                 date=today, userId=user.id, channel="email",
-                status="sent" if ok else "failed", sent_at=now_iso
+                status="sent" if ok else "failed", sent_at=now_iso_val
             ))
 
-        # ── 4. Send WhatsApp ──
+        # ── 4. WhatsApp delivery ──────────────────────────────────
+        wa_sent = wa_failed = wa_skipped = 0
         for user in users:
-            if not user.phone:
-                continue
             already_wa = QuoteDeliveryLog.query.filter_by(
                 date=today, userId=user.id, channel="whatsapp"
             ).first()
             if already_wa:
+                if already_wa.status == "sent":
+                    wa_sent += 1
+                elif already_wa.status == "failed":
+                    wa_failed += 1
+                else:
+                    wa_skipped += 1
                 continue
-            ok = send_daily_quote_whatsapp(user.phone, quote_text, author)
+
+            phone = (user.phone or "").strip()
+            ok, reason = send_daily_quote_whatsapp(phone, quote_text, author)
+
+            if ok:
+                status, err_msg = "sent", None
+                wa_sent += 1
+            elif reason in ("no_phone", "not_configured", "invalid_format"):
+                status, err_msg = "skipped_" + reason, reason
+                wa_skipped += 1
+            else:
+                status, err_msg = "failed", reason
+                wa_failed += 1
+                print(f"[QUOTE WA] Delivery failed for {user.name} ({phone}): {reason}")
+
             db.session.add(QuoteDeliveryLog(
                 date=today, userId=user.id, channel="whatsapp",
-                status="sent" if ok else "failed", sent_at=now_iso
+                status=status, sent_at=now_iso_val, error_message=err_msg
             ))
 
-        # Mark dispatch time on the DailyQuote record
-        dq.sent_at = now_iso
+        dq.sent_at = now_iso_val
         db.session.commit()
-        print(f"[DAILY QUOTE] Dispatched quote for {today} to {len(users)} users")
+        print(f"[DAILY QUOTE] Dispatched for {today} to {len(users)} users "
+              f"(WA sent={wa_sent} failed={wa_failed} skipped={wa_skipped})")
+
+        # ── 5. Founder summary notification ────────────────────────
+        already_summary = QuoteDeliveryLog.query.filter_by(
+            date=today, userId="__system__", channel="founder_summary"
+        ).first()
+        if not already_summary:
+            founders = User.query.filter(User.role.in_(["founder", "founder_assistant"])).all()
+            for f in founders:
+                make_notif(
+                    userId=f.id,
+                    ntype="quote_summary",
+                    title="✅ Daily motivation quotes sent",
+                    body=(
+                        f"WhatsApp delivery — Success: {wa_sent}, "
+                        f"Failed: {wa_failed}, Skipped: {wa_skipped}"
+                    )
+                )
+            db.session.add(QuoteDeliveryLog(
+                date=today, userId="__system__", channel="founder_summary",
+                status="sent", sent_at=now_iso_val
+            ))
+            db.session.commit()
 
 
 # ─────────────────────────────────────────────
@@ -2284,12 +2451,11 @@ def dispatch_daily_quote():
 @app.route("/api/daily-quote")
 @jwt_required()
 def get_daily_quote():
-    """Return today's motivational quote."""
     dq = get_or_create_daily_quote()
     return jsonify({
-        "date": dq.date,
-        "quote": dq.quote_text,
-        "author": dq.author,
+        "date":    dq.date,
+        "quote":   dq.quote_text,
+        "author":  dq.author,
         "sent_at": dq.sent_at
     })
 
@@ -2297,7 +2463,6 @@ def get_daily_quote():
 @app.route("/api/daily-quote/send-now", methods=["POST"])
 @jwt_required()
 def send_quote_now():
-    """Founder can manually trigger the daily quote dispatch."""
     caller = db.session.get(User, get_jwt_identity())
     if not is_founder_like(caller):
         return jsonify({"error": "Forbidden"}), 403
@@ -2310,59 +2475,44 @@ def send_quote_now():
         return jsonify({"error": str(e)}), 500
 
 
-# ─────────────────────────────────────────────
-# DASHBOARD GOALS API
-# ─────────────────────────────────────────────
-
-GOAL_KEYS    = ["emp_goal", "intern_goal", "intship_goal", "intship_cur", "cert_goal", "cert_cur"]
-GOAL_DEFAULTS = {"emp_goal": "15", "intern_goal": "40", "intship_goal": "200",
-                 "intship_cur": "0", "cert_goal": "150", "cert_cur": "0"}
-
-
-def _load_goals_dict():
-    rows = {r.key: r.value for r in DashboardGoal.query.all()}
-    result = {}
-    for k in GOAL_KEYS:
-        try:
-            result[k] = int(rows.get(k, GOAL_DEFAULTS.get(k, "0")))
-        except (ValueError, TypeError):
-            result[k] = int(GOAL_DEFAULTS.get(k, "0"))
-    return result
-
-
-@app.route("/api/dashboard/goals", methods=["GET"])
+@app.route("/api/daily-quote/stats")
 @jwt_required()
-def get_dashboard_goals():
+def daily_quote_stats():
+    """Founder-only dashboard: last quote, recipients, success/failed/skipped, last run time."""
     caller = db.session.get(User, get_jwt_identity())
-    if not caller or not is_founder_like(caller):
+    if not is_founder_like(caller):
         return jsonify({"error": "Forbidden"}), 403
-    return jsonify(_load_goals_dict())
 
+    today = today_str()
+    dq = DailyQuote.query.filter_by(date=today).first()
 
-@app.route("/api/dashboard/goals", methods=["PUT"])
-@jwt_required()
-def put_dashboard_goals():
-    caller = db.session.get(User, get_jwt_identity())
-    if not caller or not is_founder_like(caller):
-        return jsonify({"error": "Forbidden"}), 403
-    data = request.get_json() or {}
-    for k in GOAL_KEYS:
-        if k in data:
-            try:
-                val = str(int(data[k]))
-            except (ValueError, TypeError):
-                continue
-            row = db.session.get(DashboardGoal, k)
-            if row:
-                row.value = val
-            else:
-                db.session.add(DashboardGoal(key=k, value=val))
-    db.session.commit()
-    return jsonify({"success": True, "goals": _load_goals_dict()})
+    wa_logs = QuoteDeliveryLog.query.filter_by(date=today, channel="whatsapp").all()
+    sent_count    = sum(1 for l in wa_logs if l.status == "sent")
+    failed_count  = sum(1 for l in wa_logs if l.status == "failed")
+    skipped_count = sum(1 for l in wa_logs if l.status.startswith("skipped_"))
+
+    total_recipients = User.query.filter(User.phone.isnot(None), User.phone != "").count()
+
+    failures = [
+        {"user_id": l.userId, "error": l.error_message}
+        for l in wa_logs if l.status == "failed"
+    ][:20]
+
+    return jsonify({
+        "date":             today,
+        "last_quote":       dq.quote_text if dq else None,
+        "last_quote_author": dq.author if dq else None,
+        "last_execution":   dq.sent_at if dq else None,
+        "total_recipients": total_recipients,
+        "successful":       sent_count,
+        "failed":           failed_count,
+        "skipped":          skipped_count,
+        "recent_failures":  failures,
+    })
 
 
 # ─────────────────────────────────────────────
-# TODOS — account-based, JWT authenticated
+# TODOS
 # ─────────────────────────────────────────────
 
 @app.route("/api/todos", methods=["GET"])
@@ -2445,31 +2595,22 @@ def clear_completed_todos():
 
 
 # ─────────────────────────────────────────────
-# BIRTHDAY ALERT SYSTEM
+# BIRTHDAY ALERTS
 # ─────────────────────────────────────────────
 
 def check_birthday_alerts():
-    """
-    Scheduler job — runs daily at 08:00 IST.
-    Finds every employee/intern/trainer whose birthday falls exactly 7 days
-    from today. If no BirthdayAlert row exists for (employee_id, this_year),
-    creates a Notification for every founder and writes the dedup row.
-    One alert per person per calendar year — immune to duplicate scheduler fires.
-    """
     with app.app_context():
         today     = datetime.date.today()
         target    = today + datetime.timedelta(days=7)
-        now_str   = datetime.datetime.now().strftime("%b %d %I:%M %p")
+        now_str_v = datetime.datetime.now().strftime("%b %d %I:%M %p")
         year      = today.year
 
-        # All non-founder-like users with a stored DOB
         candidates = User.query.filter(
             User.role.notin_(["founder", "founder_assistant"]),
             User.date_of_birth != None,
             User.date_of_birth != ""
         ).all()
 
-        # Notify all founder-like users (founder + founder_assistant)
         founders = User.query.filter(
             User.role.in_(["founder", "founder_assistant"])
         ).all()
@@ -2483,17 +2624,14 @@ def check_birthday_alerts():
             except (ValueError, TypeError):
                 continue
 
-            # Replace year with current year to compare month/day
             try:
                 this_year_bday = dob.replace(year=target.year)
             except ValueError:
-                # Feb 29 on a non-leap year — skip gracefully
                 continue
 
             if this_year_bday != target:
                 continue
 
-            # Dedup check — one row per employee per alert_year
             already = BirthdayAlert.query.filter_by(
                 employee_id=emp.id,
                 alert_year=year
@@ -2501,17 +2639,14 @@ def check_birthday_alerts():
             if already:
                 continue
 
-            # First name for a friendly message
-            first_name = (emp.name or emp.id).split()[0]
+            first_name   = (emp.name or emp.id).split()[0]
             bday_display = this_year_bday.strftime("%B %d")
-
             title = f"🎂 Upcoming Birthday — {first_name}"
             body  = (
                 f"{first_name}'s birthday is in 7 days ({bday_display}). "
                 f"Wish preparation reminder."
             )
 
-            # Create notification for every founder
             for founder in founders:
                 make_notif(
                     userId=founder.id,
@@ -2520,11 +2655,10 @@ def check_birthday_alerts():
                     body=body
                 )
 
-            # Write dedup record
             db.session.add(BirthdayAlert(
                 employee_id=emp.id,
                 alert_year=year,
-                sent_at=now_str
+                sent_at=now_str_v
             ))
             alerts_created += 1
             print(f"[BIRTHDAY] Alert created for {emp.name} (birthday {bday_display})")
@@ -2539,10 +2673,6 @@ def check_birthday_alerts():
 @app.route("/api/birthday-alerts")
 @jwt_required()
 def get_birthday_alerts():
-    """
-    Returns employees whose birthday falls within the next 7 days.
-    Used by the VisionBoard card. Founder-only.
-    """
     caller = db.session.get(User, get_jwt_identity())
     if not caller or not is_founder_like(caller):
         return jsonify({"error": "Forbidden"}), 403
@@ -2562,7 +2692,7 @@ def get_birthday_alerts():
         except (ValueError, TypeError):
             continue
 
-        for delta in range(0, 8):          # today through +7
+        for delta in range(0, 8):
             check_date = today + datetime.timedelta(days=delta)
             try:
                 this_year_bday = dob.replace(year=check_date.year)
@@ -2587,37 +2717,31 @@ def get_birthday_alerts():
 # DAILY TASK ASSIGNMENT (12:00 AM IST)
 # ─────────────────────────────────────────────
 
-# Template definitions: (team_or_role_key, match_field, title, description)
 _DAILY_TASK_TEMPLATES = [
-    # Content Production Team
     {
         "match_field": "team",
         "match_value": "content",
         "title":       "Full video edit and post on YouTube",
         "desc":        "Avoid mistakes that occurred previously.\nEnsure quality check before publishing.",
     },
-    # Business Development Team
     {
         "match_field": "team",
         "match_value": "bizdev",
         "title":       "Manage the sales work",
         "desc":        "Follow up leads, customer communication and sales activities.",
     },
-    # Technical Team
     {
         "match_field": "team",
         "match_value": "technical",
         "title":       "Manage the technical works",
         "desc":        "Complete assigned development and maintenance work.",
     },
-    # Founder Assistant — Task 1
     {
-        "match_field": "founder_assistant",  # special: role OR team
+        "match_field": "founder_assistant",
         "match_value": "founder_assistant",
         "title":       "Report work done by the team by EOD to Sir",
         "desc":        "Prepare and submit the daily work summary before end of day.",
     },
-    # Founder Assistant — Task 2
     {
         "match_field": "founder_assistant",
         "match_value": "founder_assistant",
@@ -2628,22 +2752,15 @@ _DAILY_TASK_TEMPLATES = [
 
 
 def assign_daily_tasks():
-    """
-    Runs at 12:00 AM IST every day.
-    Creates permanent daily tasks for Content, BizDev, Technical, and
-    Founder Assistant team members.  Skips duplicates (same assignedTo +
-    title + today's date).  Sends an in-app notification per new task.
-    """
     with app.app_context():
-        today    = today_str()
-        now_iso  = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        created  = 0
+        today   = today_str()
+        now_iso_v = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        created = 0
 
         for tpl in _DAILY_TASK_TEMPLATES:
             mf = tpl["match_field"]
             mv = tpl["match_value"]
 
-            # Resolve target users
             if mf == "founder_assistant":
                 targets = User.query.filter(
                     db.or_(
@@ -2652,14 +2769,12 @@ def assign_daily_tasks():
                     )
                 ).all()
             else:
-                # team-based match; only non-founder roles
                 targets = User.query.filter(
                     User.team == mv,
                     User.role.notin_(["founder", "founder_assistant"])
                 ).all()
 
             for user in targets:
-                # Duplicate check: same user + same title + same due date
                 exists = Task.query.filter_by(
                     assignedTo=user.id,
                     title=tpl["title"],
@@ -2679,11 +2794,10 @@ def assign_daily_tasks():
                     status     = "Pending",
                     priority   = "High",
                     due        = today,
-                    createdAt  = now_iso,
+                    createdAt  = now_iso_v,
                 )
                 db.session.add(task)
 
-                # In-app notification
                 make_notif(
                     userId = user.id,
                     ntype  = "task",
@@ -2701,19 +2815,35 @@ def assign_daily_tasks():
 
 
 # ─────────────────────────────────────────────
-# START APSCHEDULER
+# APSCHEDULER  — all jobs including auto daily quote at 12:00 AM
 # ─────────────────────────────────────────────
+
 if APSCHEDULER_AVAILABLE:
     _scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
+
+    # Daily motivation quote — fires at 12:00 AM IST (midnight) every day
+    _scheduler.add_job(
+        dispatch_daily_quote,
+        trigger="cron",
+        hour=0,
+        minute=0,
+        id="auto_daily_quote_midnight",
+        replace_existing=True,
+        misfire_grace_time=3600
+    )
+
+    # Daily quote also sent at 7:00 AM as a reminder (won't duplicate — dedup prevents it)
     _scheduler.add_job(
         dispatch_daily_quote,
         trigger="cron",
         hour=7,
         minute=0,
-        id="daily_quote_job",
+        id="daily_quote_morning",
         replace_existing=True,
-        misfire_grace_time=3600  # retry up to 1 hour after missed trigger
+        misfire_grace_time=3600
     )
+
+    # Birthday alerts — 8:00 AM IST
     _scheduler.add_job(
         check_birthday_alerts,
         trigger="cron",
@@ -2723,21 +2853,43 @@ if APSCHEDULER_AVAILABLE:
         replace_existing=True,
         misfire_grace_time=3600
     )
+
+    # Daily task assignment — 12:00 AM IST (immediately after quote)
     _scheduler.add_job(
         assign_daily_tasks,
         trigger="cron",
         hour=0,
-        minute=0,
+        minute=1,
         id="daily_task_assignment_job",
         replace_existing=True,
         misfire_grace_time=3600
     )
+
     _scheduler.start()
-    print("[SCHEDULER] Daily quote scheduler started — fires at 07:00 AM IST")
-    print("[SCHEDULER] Birthday alert scheduler started — fires at 08:00 AM IST")
-    print("[SCHEDULER] Daily task assignment scheduler started — fires at 12:00 AM IST")
+    print("[SCHEDULER] Auto daily quote: 12:00 AM IST (midnight) + 7:00 AM IST")
+    print("[SCHEDULER] Birthday alerts:  08:00 AM IST")
+    print("[SCHEDULER] Daily task assign: 12:01 AM IST")
+
+    # ── Restart recovery ────────────────────────────────────────
+    # If the app restarts after midnight and the cron fire was missed
+    # (e.g. downtime longer than misfire_grace_time), make sure today's
+    # quote still goes out once. dispatch_daily_quote() is itself
+    # idempotent per user/channel/day, so this never duplicates sends.
+    def _startup_quote_recovery():
+        try:
+            with app.app_context():
+                dq = DailyQuote.query.filter_by(date=today_str()).first()
+                if not dq or not dq.sent_at:
+                    print("[QUOTE RECOVERY] No completed dispatch found for today — sending now.")
+                    dispatch_daily_quote()
+        except Exception as exc:
+            print(f"[QUOTE RECOVERY] Error: {exc}")
+
+    threading.Thread(target=_startup_quote_recovery, daemon=True).start()
 
 
+# ─────────────────────────────────────────────
+# ERROR HANDLERS
 # ─────────────────────────────────────────────
 
 @app.errorhandler(500)
@@ -2771,10 +2923,6 @@ def static_files(filename):
 def home():
     return send_file("taskflow_v3.html")
 
-
-# ─────────────────────────────────────────────
-# RUN
-# ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("=" * 50)
