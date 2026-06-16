@@ -14,66 +14,95 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#0B0F0C;--surface:#111714;--surface2:#16201B;--surface3:#1C2A22;
-  --border:#1F3328;--border2:#2C4A3A;--text:#E8F5EC;--text2:#9FB7A9;--text3:#5F7A6A;
-  --gold:#22C55E;--gold2:#4ADE80;--gold3:#15803D;--green:#22C55E;--red:#EF4444;--blue:#38BDF8;
-  --radius:12px;--radius-sm:8px;font-family:'DM Sans',sans-serif;
+  /* ── Plant Green Inertia Brand Palette ── */
+  --deep:#0D2B12;
+  --forest:#1A5C2A;
+  --mid:#2E7D32;
+  --leaf:#4CAF50;
+  --lime:#A5D6A7;
+  --gold-brand:#C8A94A;
+
+  /* ── Neutrals ── */
+  --cream:#F4F1EA;
+  --warm:#FAF7F2;
+  --white:#FFFFFF;
+
+  /* ── Semantic mappings → old CSS var names (preserves all JS/HTML references) ── */
+  --bg:var(--warm);
+  --surface:var(--white);
+  --surface2:var(--cream);
+  --surface3:#EAE7DF;
+  --border:rgba(26,92,42,0.12);
+  --border2:rgba(26,92,42,0.22);
+  --text:#1A1A1A;
+  --text2:#5A6B5C;
+  --text3:#8A9E8C;
+
+  /* accent colours remapped to PGI palette */
+  --gold:var(--leaf);
+  --gold2:var(--mid);
+  --gold3:var(--forest);
+  --green:var(--leaf);
+  --red:#C0392B;
+  --blue:#1565C0;
+
+  --radius:14px;--radius-sm:9px;font-family:'DM Sans',sans-serif;
 }
 body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .screen{display:none;min-height:100vh}
 .screen.active{display:flex}
 
 /* LOGIN */
-#login{align-items:center;justify-content:center;background:var(--bg);position:relative;padding:16px}
-#login::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% -10%,rgba(34,197,94,0.12),transparent);pointer-events:none}
-.login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;width:100%;max-width:460px;position:relative;z-index:1;box-shadow:0 0 80px rgba(34,197,94,0.06)}
-.login-card::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:60%;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+#login{align-items:center;justify-content:center;background:linear-gradient(160deg,var(--warm) 60%,#E8F5E9 100%);position:relative;padding:16px}
+#login::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 50% at 50% 0%,rgba(76,175,80,0.10),transparent);pointer-events:none}
+.login-card{background:var(--white);border:1px solid rgba(26,92,42,0.14);border-radius:22px;padding:40px 36px;width:100%;max-width:460px;position:relative;z-index:1;box-shadow:0 8px 48px rgba(13,43,18,0.10),0 2px 8px rgba(13,43,18,0.06)}
+.login-card::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:60%;height:2px;background:linear-gradient(90deg,transparent,var(--leaf),transparent);border-radius:0 0 2px 2px}
 .brand{text-align:center;margin-bottom:28px}
-.brand-icon{width:52px;height:52px;background:linear-gradient(135deg,var(--gold3),var(--gold));border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:24px;box-shadow:0 0 24px rgba(34,197,94,0.3)}
-.brand h1{font-family:'DM Serif Display',serif;font-size:26px;letter-spacing:-0.5px}
+.brand-icon{width:54px;height:54px;background:linear-gradient(135deg,var(--forest),var(--leaf));border-radius:15px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;font-size:24px;box-shadow:0 6px 20px rgba(26,92,42,0.22)}
+.brand h1{font-family:'DM Serif Display',serif;font-size:26px;letter-spacing:-0.5px;color:var(--deep)}
 .brand p{font-size:13px;color:var(--text2);margin-top:4px}
-.role-tabs{display:flex;background:var(--surface2);border-radius:var(--radius-sm);padding:4px;margin-bottom:18px;gap:4px}
-.role-tab{flex:1;padding:9px 6px;text-align:center;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text2);transition:all 0.2s;border:1px solid transparent;white-space:nowrap}
-.role-tab.active{background:var(--surface3);color:var(--text);border-color:var(--border)}
+.role-tabs{display:flex;background:var(--cream);border-radius:10px;padding:4px;margin-bottom:18px;gap:4px;border:1px solid rgba(26,92,42,0.10)}
+.role-tab{flex:1;padding:9px 6px;text-align:center;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text2);transition:all 0.2s;border:1px solid transparent;white-space:nowrap}
+.role-tab.active{background:var(--forest);color:var(--white);border-color:var(--forest);box-shadow:0 2px 8px rgba(26,92,42,0.25)}
 .form-group{margin-bottom:14px}
 .form-group label{display:block;font-size:11px;font-weight:600;color:var(--text3);letter-spacing:0.8px;text-transform:uppercase;margin-bottom:7px}
-.form-group input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color 0.2s}
-.form-group input:focus{border-color:var(--gold3)}
-.btn-primary{width:100%;padding:13px;background:linear-gradient(135deg,var(--gold3),var(--gold));border:none;border-radius:var(--radius-sm);color:#0B1A0D;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;margin-top:6px;box-shadow:0 4px 20px rgba(34,197,94,0.25)}
-.btn-primary:hover{opacity:0.88;transform:translateY(-1px)}
+.form-group input{width:100%;background:var(--cream);border:1px solid rgba(26,92,42,0.14);border-radius:var(--radius-sm);padding:12px 16px;color:var(--text);font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color 0.2s,box-shadow 0.2s}
+.form-group input:focus{border-color:var(--leaf);box-shadow:0 0 0 3px rgba(76,175,80,0.12)}
+.btn-primary{width:100%;padding:13px;background:linear-gradient(135deg,var(--forest),var(--mid));border:none;border-radius:var(--radius-sm);color:var(--white);font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;margin-top:6px;box-shadow:0 4px 18px rgba(26,92,42,0.28)}
+.btn-primary:hover{background:linear-gradient(135deg,var(--deep),var(--forest));transform:translateY(-1px);box-shadow:0 6px 24px rgba(26,92,42,0.34)}
 
 /* MOBILE TOPBAR */
-.mobile-topbar{display:none;position:fixed;top:0;left:0;right:0;z-index:300;background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;height:52px;align-items:center;justify-content:space-between}
-.mobile-brand{font-family:'DM Serif Display',serif;font-size:16px;display:flex;align-items:center;gap:8px}
+.mobile-topbar{display:none;position:fixed;top:0;left:0;right:0;z-index:300;background:var(--forest);border-bottom:1px solid rgba(0,0,0,0.12);padding:0 16px;height:52px;align-items:center;justify-content:space-between}
+.mobile-brand{font-family:'DM Serif Display',serif;font-size:16px;display:flex;align-items:center;gap:8px;color:var(--white)}
 .mobile-topbar-right{display:flex;align-items:center;gap:8px}
-.hamburger{width:36px;height:36px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:5px;cursor:pointer;border-radius:8px;border:1px solid var(--border2)}
-.hamburger span{display:block;width:18px;height:2px;background:var(--text2);border-radius:2px}
-.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:250}
+.hamburger{width:36px;height:36px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:5px;cursor:pointer;border-radius:8px;border:1px solid rgba(255,255,255,0.25)}
+.hamburger span{display:block;width:18px;height:2px;background:rgba(255,255,255,0.85);border-radius:2px}
+.sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(13,43,18,0.55);z-index:250}
 .sidebar-overlay.open{display:block}
 
 /* NOTIFICATION BELL */
-.notif-bell{position:relative;cursor:pointer;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border2);transition:border-color 0.15s;font-size:16px;flex-shrink:0}
-.notif-bell:hover{border-color:var(--gold3)}
-.notif-badge{position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;border:2px solid var(--bg)}
+.notif-bell{position:relative;cursor:pointer;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid rgba(26,92,42,0.18);transition:border-color 0.15s,background 0.15s;font-size:16px;flex-shrink:0;background:var(--white);color:var(--forest)}
+.notif-bell:hover{border-color:var(--leaf);background:var(--cream)}
+.notif-badge{position:absolute;top:-4px;right:-4px;background:var(--red);color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:700;display:none;align-items:center;justify-content:center;border:2px solid var(--warm)}
 .notif-badge.show{display:flex}
 
 /* NOTIFICATION PANEL */
-.notif-panel{position:fixed;top:0;right:0;width:360px;max-width:100vw;height:100vh;background:var(--surface);border-left:1px solid var(--border2);z-index:500;transition:transform 0.28s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;box-shadow:-8px 0 40px rgba(0,0,0,0.4);transform:translateX(100%)}
+.notif-panel{position:fixed;top:0;right:0;width:360px;max-width:100vw;height:100vh;background:var(--white);border-left:1px solid rgba(26,92,42,0.14);z-index:500;transition:transform 0.28s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;box-shadow:-6px 0 40px rgba(13,43,18,0.12);transform:translateX(100%)}
 .notif-panel.open{transform:translateX(0)}
-.notif-panel-head{padding:20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
-.notif-panel-head h3{font-family:'DM Serif Display',serif;font-size:18px;flex:1}
-.notif-panel-close{cursor:pointer;color:var(--text3);font-size:20px;line-height:1;padding:4px}
-.notif-panel-close:hover{color:var(--text)}
-.notif-panel-actions{padding:10px 20px;border-bottom:1px solid var(--border)}
-.notif-panel-body{flex:1;overflow-y:auto;padding:12px}
-.notif-item{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s;position:relative}
-.notif-item:hover{border-color:var(--border2)}
-.notif-item.task{border-left:3px solid var(--gold)}
-.notif-item.proof{border-left:3px solid var(--blue)}
-.notif-item.morning{border-left:3px solid #FBBF24}
+.notif-panel-head{padding:20px;border-bottom:1px solid rgba(26,92,42,0.10);display:flex;align-items:center;gap:10px;background:var(--forest)}
+.notif-panel-head h3{font-family:'DM Serif Display',serif;font-size:18px;flex:1;color:var(--white)}
+.notif-panel-close{cursor:pointer;color:rgba(255,255,255,0.7);font-size:20px;line-height:1;padding:4px}
+.notif-panel-close:hover{color:var(--white)}
+.notif-panel-actions{padding:10px 20px;border-bottom:1px solid rgba(26,92,42,0.10)}
+.notif-panel-body{flex:1;overflow-y:auto;padding:12px;background:var(--warm)}
+.notif-item{background:var(--white);border:1px solid rgba(26,92,42,0.10);border-radius:var(--radius-sm);padding:14px;margin-bottom:8px;cursor:pointer;transition:border-color 0.15s,box-shadow 0.15s;position:relative}
+.notif-item:hover{border-color:rgba(76,175,80,0.35);box-shadow:0 2px 12px rgba(26,92,42,0.08)}
+.notif-item.task{border-left:3px solid var(--leaf)}
+.notif-item.proof{border-left:3px solid #1565C0}
+.notif-item.morning{border-left:3px solid var(--gold-brand)}
 .notif-item.message{border-left:3px solid var(--text3)}
-.notif-item.motivation{border-left:3px solid #A78BFA}
-.notif-item.birthday{border-left:3px solid #F472B6}
+.notif-item.motivation{border-left:3px solid #7B5EA7}
+.notif-item.birthday{border-left:3px solid #C0306F}
 .notif-item-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px}
 .notif-item-body{font-size:12px;color:var(--text2);line-height:1.5}
 .notif-item-time{font-size:10px;color:var(--text3);margin-top:6px}
@@ -83,27 +112,27 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 
 /* APP SHELL */
 #app{flex-direction:row}
-.sidebar{width:260px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;transition:transform 0.28s cubic-bezier(.4,0,.2,1);z-index:260}
-.sidebar-brand{padding:22px 20px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
-.sidebar-brand .s-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--gold3),var(--gold));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
-.sidebar-brand span{font-family:'DM Serif Display',serif;font-size:18px}
+.sidebar{width:260px;min-height:100vh;background:var(--deep);border-right:1px solid rgba(0,0,0,0.18);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;transition:transform 0.28s cubic-bezier(.4,0,.2,1);z-index:260}
+.sidebar-brand{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:10px}
+.sidebar-brand .s-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--forest),var(--leaf));border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;box-shadow:0 3px 10px rgba(0,0,0,0.3)}
+.sidebar-brand span{font-family:'DM Serif Display',serif;font-size:18px;color:var(--white)}
 .sidebar-nav{padding:16px 12px;flex:1}
-.nav-label{font-size:10px;font-weight:600;color:var(--text3);letter-spacing:1px;text-transform:uppercase;padding:0 8px;margin:16px 0 6px}
-.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius-sm);cursor:pointer;color:var(--text2);font-size:13px;font-weight:500;transition:all 0.15s;margin-bottom:2px;border:1px solid transparent}
-.nav-item:hover{background:var(--surface2);color:var(--text)}
-.nav-item.active{background:var(--surface3);color:var(--text);border-color:var(--border)}
-.nav-icon{width:15px;height:15px;flex-shrink:0;opacity:0.7}
-.notif-dot{width:6px;height:6px;background:var(--gold);border-radius:50%;margin-left:auto;flex-shrink:0}
+.nav-label{font-size:10px;font-weight:600;color:rgba(165,214,167,0.5);letter-spacing:1px;text-transform:uppercase;padding:0 8px;margin:16px 0 6px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius-sm);cursor:pointer;color:rgba(165,214,167,0.75);font-size:13px;font-weight:500;transition:all 0.15s;margin-bottom:2px;border:1px solid transparent}
+.nav-item:hover{background:rgba(76,175,80,0.12);color:var(--lime)}
+.nav-item.active{background:var(--forest);color:var(--white);border-color:rgba(76,175,80,0.25);box-shadow:0 2px 10px rgba(0,0,0,0.25)}
+.nav-icon{width:15px;height:15px;flex-shrink:0;opacity:0.75}
+.notif-dot{width:6px;height:6px;background:var(--gold-brand);border-radius:50%;margin-left:auto;flex-shrink:0}
 .msg-count-badge{background:var(--red);color:#fff;border-radius:10px;font-size:10px;font-weight:700;padding:1px 6px;margin-left:auto;display:none}
 .msg-count-badge.show{display:block}
 
 /* ATTENDANCE SIDEBAR */
-.attendance-panel{border-top:1px solid var(--border);padding:12px}
-.att-panel-title{font-size:10px;font-weight:600;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;padding:0 4px}
+.attendance-panel{border-top:1px solid rgba(255,255,255,0.08);padding:12px}
+.att-panel-title{font-size:10px;font-weight:600;color:rgba(165,214,167,0.5);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;padding:0 4px}
 .att-mini-list{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto}
-.att-mini-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;background:var(--surface2);border:1px solid var(--border)}
+.att-mini-row{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08)}
 .att-mini-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
-.att-mini-name{font-size:11px;color:var(--text2);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.att-mini-name{font-size:11px;color:rgba(165,214,167,0.75);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .att-mini-status{font-size:9px;font-weight:600;letter-spacing:0.3px}
 
 /* SIDEBAR USER */
@@ -663,7 +692,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
       </div>
       <div class="nav-item active" onclick="showPanel('dashboard',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
-        VisionBoard
+        Vision Board
       </div>
       <div class="nav-item" onclick="showPanel('tasks',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="12" rx="2"/><path d="M5 8h6M5 5h3M5 11h4"/></svg>
@@ -741,7 +770,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
   <main class="main">
     <div class="main-header">
       <div>
-        <div class="page-title" id="page-title">VisionBoard</div>
+        <div class="page-title" id="page-title">Vision Board</div>
         <div class="page-sub" id="page-sub">Welcome back</div>
       </div>
     </div>
@@ -778,7 +807,26 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
             <button class="btn-sm btn-gold" onclick="sendMorningMessage()">✉️ Send Email to Team</button>
             <button class="btn-sm btn-outline" onclick="document.getElementById('morning-msg-input').value=''">Clear</button>
             <button class="btn-sm btn-outline" onclick="testEmailDelivery()" style="color:var(--gold2);border-color:var(--gold3)">🔧 Test Email</button>
-            <button class="btn-sm btn-outline" onclick="sendDailyMotivationNow()" style="color:#A78BFA;border-color:rgba(167,139,250,0.4)" title="Send today's motivational quote to all users via email, WhatsApp and chat">✨ Send Daily Motivation</button>
+          </div>
+        </div>
+
+        <!-- Daily Motivation / WhatsApp delivery controls (founder only) -->
+        <div class="morning-composer founder-only" id="quote-composer" style="display:none">
+          <h4>✨ Daily Motivation — WhatsApp Delivery</h4>
+          <div class="stats-grid" style="margin-bottom:14px">
+            <div class="stat-card"><div class="stat-label"><span class="dot dot-blue"></span>Recipients</div><div class="stat-value" id="qstat-recipients">—</div><div class="stat-sub">With WhatsApp numbers</div></div>
+            <div class="stat-card"><div class="stat-label"><span class="dot dot-green"></span>Delivered</div><div class="stat-value" id="qstat-success">—</div><div class="stat-sub">Successful sends today</div></div>
+            <div class="stat-card"><div class="stat-label"><span class="dot dot-red"></span>Failed</div><div class="stat-value" id="qstat-failed">—</div><div class="stat-sub">Delivery errors</div></div>
+            <div class="stat-card"><div class="stat-label"><span class="dot dot-gold"></span>Skipped</div><div class="stat-value" id="qstat-skipped">—</div><div class="stat-sub">No / invalid number</div></div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.6;background:var(--surface2);border-radius:6px;padding:10px 12px;border:1px solid var(--border)">
+            <div style="color:var(--gold2);font-weight:600;margin-bottom:4px">Last execution</div>
+            <div id="qstat-last-run" style="color:var(--text2)">Not run yet today</div>
+            <div id="qstat-last-quote" style="color:var(--text3);font-style:italic;margin-top:4px"></div>
+          </div>
+          <div class="morning-composer-actions">
+            <button class="btn-sm btn-outline" onclick="sendDailyMotivationNow()" style="color:#A78BFA;border-color:rgba(167,139,250,0.4)" title="Send today's motivational quote to all users via email, WhatsApp and chat">✨ Send Today's Quote Now</button>
+            <button class="btn-sm btn-outline" onclick="loadDailyQuoteStats()">🔄 Refresh Stats</button>
           </div>
         </div>
       </div>
@@ -1373,6 +1421,7 @@ async function initApp() {
 
   if (isFounderLike(currentUser)) {
     document.getElementById('morning-composer').style.display = '';
+    document.getElementById('quote-composer').style.display = '';
     const senderEl = document.getElementById('morning-sender-name');
     if (senderEl) senderEl.textContent = currentUser.name.split(' ')[0];
   }
@@ -1388,7 +1437,8 @@ async function initApp() {
     await Promise.all([
       loadUsers(), loadTasks(), loadAttendance(),
       loadMorningMessage(), loadMessages('all'), loadNotifications(),
-      isFounderLike(currentUser) ? loadVbGoalsFromApi() : Promise.resolve()
+      isFounderLike(currentUser) ? loadVbGoalsFromApi() : Promise.resolve(),
+      isFounderLike(currentUser) ? loadDailyQuoteStats() : Promise.resolve()
     ]);
   }
 
@@ -1403,7 +1453,16 @@ async function initApp() {
 // ═══════════════════════════════════════════════════════════
 async function loadUsers()    { const d = await api('GET', '/users'); if (d && Array.isArray(d)) ALL_USERS = d; }
 async function loadTasks()    { const d = await api('GET', '/tasks'); if (d && Array.isArray(d)) { TASKS = d; updateStats(); renderDashboard(); renderMyTasks(); renderVerify(); } }
-async function loadAttendance() { const d = await api('GET', '/attendance'); if (d && Array.isArray(d)) { ATTENDANCE = {}; d.forEach(a => { ATTENDANCE[a.userId] = a.status; }); } updateSidebarAttendance(); }
+async function loadAttendance() { const d = await api('GET', '/attendance'); if (d && Array.isArray(d)) { ATTENDANCE = {}; d.forEach(a => { ATTENDANCE[a.userId] = { status: a.status, date: a.date, checkin_time: a.checkin_time, checkout_time: a.checkout_time }; }); } updateSidebarAttendance(); }
+
+function formatAttendanceTime(ts) {
+  if (!ts) return '--';
+  try {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return '--';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  } catch(e) { return '--'; }
+}
 async function loadMessages(channel) { const d = await api('GET', `/messages?channel=${channel}`); if (d && Array.isArray(d)) CHANNEL_MSGS[channel] = d; }
 async function loadMorningMessage() { const d = await api('GET', '/morning-message'); if (d?.text) { document.getElementById('morning-banner-text').textContent = d.text; document.getElementById('morning-banner-meta').textContent = `From ${d.from} · ${d.time}`; document.getElementById('morning-banner').style.display = !isFounderLike(currentUser) ? 'block' : 'none'; } }
 async function loadNotifications() {
@@ -1515,7 +1574,28 @@ async function sendDailyMotivationNow() {
     await loadMessages(currentChannel);
     if (document.getElementById('panel-messages')?.classList.contains('active')) renderMessages();
     await loadNotifications();
-  } finally { if (btn) { btn.disabled = false; btn.textContent = '✨ Send Daily Motivation'; } }
+    await loadDailyQuoteStats();
+  } finally { if (btn) { btn.disabled = false; btn.textContent = "✨ Send Today's Quote Now"; } }
+}
+
+async function loadDailyQuoteStats() {
+  if (!isFounderLike(currentUser)) return;
+  const d = await api('GET', '/daily-quote/stats');
+  if (!d || d.__error) return;
+  document.getElementById('qstat-recipients').textContent = d.total_recipients ?? '—';
+  document.getElementById('qstat-success').textContent    = d.successful ?? 0;
+  document.getElementById('qstat-failed').textContent     = d.failed ?? 0;
+  document.getElementById('qstat-skipped').textContent    = d.skipped ?? 0;
+  const lastRunEl = document.getElementById('qstat-last-run');
+  if (lastRunEl) {
+    lastRunEl.textContent = d.last_execution
+      ? `Sent at ${new Date(d.last_execution).toLocaleString()}`
+      : 'Not run yet today';
+  }
+  const lastQuoteEl = document.getElementById('qstat-last-quote');
+  if (lastQuoteEl) {
+    lastQuoteEl.textContent = d.last_quote ? `"${d.last_quote}" — ${d.last_quote_author || 'Unknown'}` : '';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2069,7 +2149,7 @@ function renderDashboard() {
 
     sec.innerHTML = `
       <div class="section-header" style="margin-bottom:16px">
-        <div class="section-title">📊 Visionboard</div>
+        <div class="section-title">📊 Vision Board</div>
         <button class="btn-sm btn-outline" style="font-size:11px;padding:5px 12px" onclick="openVbGoalsModal()">⚙ Edit Goals</button>
       </div>
       <div class="vb-grid" id="vb-cards-grid">
@@ -2231,7 +2311,7 @@ async function renderAttendance() {
   // Show basic content immediately, don't wait for history
   if (isFounderLike(currentUser)) {
     const all    = getNonFounders();
-    const pCount = all.filter(u => ATTENDANCE[u.id] === 'present').length;
+    const pCount = all.filter(u => ATTENDANCE[u.id]?.status === 'present').length;
     const aCount = all.length - pCount;
     const emps   = getEmployees(), interns = getInterns(), trs = getTrainers();
 
@@ -2268,7 +2348,10 @@ async function renderAttendance() {
 
   } else {
     // Employee/intern/trainer view — unchanged
-    const st = ATTENDANCE[currentUser.id] || 'absent';
+    const attObj = ATTENDANCE[currentUser.id] || {};
+    const st = attObj.status || 'absent';
+    const ciTime = formatAttendanceTime(attObj.checkin_time);
+    const coTime = formatAttendanceTime(attObj.checkout_time);
     view.innerHTML = `<div style="max-width:480px">
       <div style="margin-bottom:24px">
         <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">Mark Your Attendance</div>
@@ -2286,6 +2369,10 @@ async function renderAttendance() {
         <div style="font-size:40px;margin-bottom:10px">${st === 'present' ? '✅' : '❌'}</div>
         <div style="font-size:16px;font-weight:600;color:${st === 'present' ? 'var(--green)' : 'var(--red)'}">${st === 'present' ? 'You are marked Present today' : 'You are marked Absent today'}</div>
         <div style="font-size:12px;color:var(--text3);margin-top:6px">${st === 'present' ? 'Your attendance has been recorded' : 'Slide the toggle to mark yourself present'}</div>
+        ${ciTime !== '--' || coTime !== '--' ? `<div style="margin-top:14px;display:flex;justify-content:center;gap:24px;flex-wrap:wrap">
+          <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check In</div><div style="font-size:13px;font-weight:500;color:var(--green)">${ciTime}</div></div>
+          <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check Out</div><div style="font-size:13px;font-weight:500;color:${coTime !== '--' ? 'var(--red)' : 'var(--text3)'}">${coTime}</div></div>
+        </div>` : ''}
       </div>
     </div>`;
     updateSidebarAttendance();
@@ -2296,7 +2383,7 @@ async function renderAttendance() {
   const view = document.getElementById('attendance-view');
   if (isFounderLike(currentUser)) {
     const all    = getNonFounders();
-    const pCount = all.filter(u => ATTENDANCE[u.id] === 'present').length;
+    const pCount = all.filter(u => ATTENDANCE[u.id]?.status === 'present').length;
     const aCount = all.length - pCount;
     const emps   = getEmployees(), interns = getInterns(), trs = getTrainers();
 
@@ -2441,7 +2528,10 @@ async function renderAttendance() {
       </div>`;
 
   } else {
-    const st = ATTENDANCE[currentUser.id] || 'absent';
+    const attObj2 = ATTENDANCE[currentUser.id] || {};
+    const st = attObj2.status || 'absent';
+    const ciTime2 = formatAttendanceTime(attObj2.checkin_time);
+    const coTime2 = formatAttendanceTime(attObj2.checkout_time);
     view.innerHTML = `<div style="max-width:480px">
       <div style="margin-bottom:24px">
         <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">Mark Your Attendance</div>
@@ -2459,6 +2549,10 @@ async function renderAttendance() {
         <div style="font-size:40px;margin-bottom:10px">${st === 'present' ? '✅' : '❌'}</div>
         <div style="font-size:16px;font-weight:600;color:${st === 'present' ? 'var(--green)' : 'var(--red)'}">${st === 'present' ? 'You are marked Present today' : 'You are marked Absent today'}</div>
         <div style="font-size:12px;color:var(--text3);margin-top:6px">${st === 'present' ? 'Your attendance has been recorded' : 'Slide the toggle to mark yourself present'}</div>
+        ${ciTime2 !== '--' || coTime2 !== '--' ? `<div style="margin-top:14px;display:flex;justify-content:center;gap:24px;flex-wrap:wrap">
+          <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check In</div><div style="font-size:13px;font-weight:500;color:var(--green)">${ciTime2}</div></div>
+          <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check Out</div><div style="font-size:13px;font-weight:500;color:${coTime2 !== '--' ? 'var(--red)' : 'var(--text3)'}">${coTime2}</div></div>
+        </div>` : ''}
       </div>
     </div>`;
   }
@@ -2607,19 +2701,84 @@ function exportAttendanceCSV() {
   });
 }
 
+// function founderAttCard(u) {
+//   const attObj = ATTENDANCE[u.id] || {}; const s = attObj.status || 'absent'; const c = ac(u.id);
+//   const ciTime = formatAttendanceTime(attObj.checkin_time);
+//   const coTime = formatAttendanceTime(attObj.checkout_time);
+//   return `<div class="founder-att-card ${s==='present'?'present-card':'absent-card'}">
+//     ${u.profile_photo ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">` : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px">${u.initials}</div>`}
+//     <div style="flex:1;min-width:0">
+//       <div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div>
+//       <div style="font-size:10px;color:var(--text3)">${u.team||u.role}</div>
+//       <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">
+//         <span style="font-size:10px;color:var(--text3)">In&nbsp;<span style="color:${ciTime!=='--'?'var(--green)':'var(--text3)';font-weight:500}">${ciTime}</span></span>
+//         <span style="font-size:10px;color:var(--text3)">Out&nbsp;<span style="color:${coTime!=='--'?'#C0392B':'var(--text3)';font-weight:500}">${coTime}</span></span>
+//       </div>
+//     </div>
+//     <span class="att-status-pill ${s==='present'?'att-present-pill':'att-absent-pill'}">${s==='present'?'PRESENT':'ABSENT'}</span>
+//   </div>`;
+// }
+
 function founderAttCard(u) {
-  const s = ATTENDANCE[u.id] || 'absent'; const c = ac(u.id);
-  return `<div class="founder-att-card ${s==='present'?'present-card':'absent-card'}">
-    ${u.profile_photo ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">` : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px">${u.initials}</div>`}
-    <div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.name}</div><div style="font-size:10px;color:var(--text3)">${u.team||u.role}</div></div>
-    <span class="att-status-pill ${s==='present'?'att-present-pill':'att-absent-pill'}">${s==='present'?'PRESENT':'ABSENT'}</span>
-  </div>`;
+    const attObj = ATTENDANCE[u.id] || {};
+    const status = attObj.status || "absent";
+    const color = ac(u.id);
+
+    const checkIn = formatAttendanceTime(attObj.checkin_time);
+    const checkOut = formatAttendanceTime(attObj.checkout_time);
+
+    return `
+    <div class="founder-att-card ${status === "present" ? "present-card" : "absent-card"}">
+
+        ${
+            u.profile_photo
+                ? `<img src="${u.profile_photo}"
+                        style="width:28px;height:28px;border-radius:50%;object-fit:cover">`
+                : `<div class="avatar"
+                        style="background:linear-gradient(135deg,${color}99,${color});
+                               width:28px;
+                               height:28px;
+                               font-size:10px">
+                        ${u.initials}
+                   </div>`
+        }
+
+        <div style="flex:1">
+
+            <div style="font-size:12px;font-weight:600">
+                ${u.name}
+            </div>
+
+            <div style="font-size:10px;color:var(--text3)">
+                ${u.team || u.role}
+            </div>
+
+            <div style="font-size:10px;color:var(--text3);margin-top:4px">
+                🕒 In : ${checkIn}
+            </div>
+
+            
+
+        </div>
+
+        <span class="att-status-pill ${
+            status === "present"
+                ? "att-present-pill"
+                : "att-absent-pill"
+        }">
+
+            ${status === "present" ? "PRESENT" : "ABSENT"}
+
+        </span>
+
+    </div>
+    `;
 }
 
 async function toggleAttendance(uid) {
-  const current = ATTENDANCE[uid] || 'absent';
+  const current = ATTENDANCE[uid]?.status || 'absent';
   const newStatus = current==='present'?'absent':'present';
-  ATTENDANCE[uid] = newStatus;
+  ATTENDANCE[uid] = { ...(ATTENDANCE[uid] || {}), status: newStatus };
   await api('PATCH', '/attendance', { userId: uid, status: newStatus });
   renderAttendance();
   showToast(`Attendance marked as ${newStatus} ✓`);
@@ -3632,7 +3791,7 @@ function showPanel(name,navEl) {
   const p=document.getElementById('panel-'+name);if(p)p.classList.add('active');
   if(navEl)navEl.classList.add('active');
   const titles={
-    dashboard:['VisionBoard','Your workspace overview'],
+    dashboard:['Vision Board','Your workspace overview'],
     tasks:['My Tasks','All assigned tasks'],
     attendance:['Attendance','Mark and view attendance'],
     teams:['Teams','Browse teams and members'],
@@ -4956,11 +5115,11 @@ ensureXLSX().catch(() => {});
 </div>
 
 <!-- ── VISIONBOARD GOALS MODAL ────────────────────────────── -->
-<div id="vb-goals-modal" role="dialog" aria-modal="true" aria-label="Edit Visionboard Goals"
+<div id="vb-goals-modal" role="dialog" aria-modal="true" aria-label="Edit Vision Board Goals"
      onclick="if(event.target===this)closeVbGoalsModal()">
   <div class="vb-goals-box">
     <button class="vb-goals-close" onclick="closeVbGoalsModal()" title="Close">✕</button>
-    <h3>⚙ Edit Visionboard Goals</h3>
+    <h3>⚙ Edit Vision Board Goals</h3>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div class="vb-goal-row">
         <label>Employee Recruitment Goal</label>
