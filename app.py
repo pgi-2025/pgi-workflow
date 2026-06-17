@@ -39,8 +39,30 @@ except ImportError:
 
 load_dotenv()
 
+# ─────────────────────────────────────────────
+# TIMEZONE — single source of truth for all timestamps.
+# Server may run in UTC (Render/production) or IST (local), so every
+# date/time used anywhere in this app MUST go through these helpers
+# instead of datetime.datetime.now() / .utcnow() / .today().
+# ─────────────────────────────────────────────
+# Fixed UTC+5:30 offset — no zoneinfo/tzdata dependency.
+# Works identically on Windows, macOS, Linux, and Render/production.
+IST = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+
+def now_ist():
+    """Current timezone-aware datetime in IST (UTC+5:30), regardless of server locale."""
+    return datetime.datetime.now(IST)
+
+def today_ist():
+    """Current date in IST (use instead of datetime.date.today())."""
+    return now_ist().date()
+
 app = Flask(__name__)
 CORS(app)
+
+# Startup log — verify deployment timezone immediately on import so this
+# fires under gunicorn/Render too, not just `python app.py`.
+print("Server Timezone:", now_ist())
 
 app.config["JWT_SECRET_KEY"]            = os.getenv("JWT_SECRET", "pgi-secret-key-2025")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"]  = datetime.timedelta(hours=24)
@@ -251,20 +273,20 @@ class DashboardGoal(db.Model):
 # ─────────────────────────────────────────────
 
 def now_str():
-    return datetime.datetime.now().strftime("%I:%M %p")
+    return now_ist().strftime("%I:%M %p")
 
 def today_str():
-    return datetime.datetime.now().strftime("%Y-%m-%d")
+    return now_ist().strftime("%Y-%m-%d")
 
 def now_iso():
-    return datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    return now_ist().strftime("%Y-%m-%dT%H:%M:%S")
 
 def make_notif(userId, ntype, title, body):
     n = Notification(
         userId=userId, ntype=ntype,
         title=title, body=body,
         is_read=False,
-        createdAt=datetime.datetime.now().strftime("%b %d %I:%M %p")
+        createdAt=now_ist().strftime("%b %d %I:%M %p")
     )
     db.session.add(n)
 
@@ -484,7 +506,7 @@ def create_user():
     if dob:
         try:
             dob_date = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
-            if dob_date > datetime.date.today():
+            if dob_date > today_ist():
                 return jsonify({"error": "Date of birth cannot be a future date"}), 400
         except ValueError:
             return jsonify({"error": "Invalid date_of_birth format. Use YYYY-MM-DD"}), 400
@@ -495,7 +517,7 @@ def create_user():
         team_value = "Founder Assistant"
 
     user = User(
-        id=data.get("id") or ("u" + str(int(datetime.datetime.now().timestamp() * 1000))),
+        id=data.get("id") or ("u" + str(int(now_ist().timestamp() * 1000))),
         email=email,
         password=generate_password_hash(data.get("password", "emp2025")),
         role=role_value,
@@ -585,7 +607,7 @@ def update_user(user_id):
         if dob:
             try:
                 dob_date = datetime.datetime.strptime(dob, "%Y-%m-%d").date()
-                if dob_date > datetime.date.today():
+                if dob_date > today_ist():
                     return jsonify({"error": "Date of birth cannot be a future date"}), 400
             except ValueError:
                 return jsonify({"error": "Invalid date_of_birth format. Use YYYY-MM-DD"}), 400
@@ -597,7 +619,7 @@ def update_user(user_id):
     log_entry = AuditLog(
         action       = f"Founder updated {user.name}'s profile",
         performed_by = caller.name,
-        timestamp    = datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
+        timestamp    = now_ist().strftime("%b %d, %Y %I:%M %p")
     )
     db.session.add(log_entry)
     db.session.commit()
@@ -637,7 +659,7 @@ def set_user_role(user_id):
     db.session.add(AuditLog(
         action=f"{caller.name} changed {user.name}'s role to {new_role}",
         performed_by=caller.name,
-        timestamp=datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
+        timestamp=now_ist().strftime("%b %d, %Y %I:%M %p")
     ))
     db.session.commit()
     return jsonify({"success": True, "user": {
@@ -787,7 +809,7 @@ def create_task():
         wcp = max(0.0, min(100.0, wcp))
 
         task = Task(
-            id        = "t" + str(int(datetime.datetime.now().timestamp() * 1000)),
+            id        = "t" + str(int(now_ist().timestamp() * 1000)),
             title     = (data.get("title") or "").strip(),
             desc      = (data.get("desc")  or "").strip(),
             assignedTo= assignee_id,
@@ -796,7 +818,7 @@ def create_task():
             priority  = data.get("priority", "medium"),
             due       = data.get("due") or "TBD",
             msg       = (data.get("msg") or "").strip(),
-            createdAt = datetime.datetime.now().strftime("%b %d, %Y %I:%M %p"),
+            createdAt = now_ist().strftime("%b %d, %Y %I:%M %p"),
             work_completion_percentage = wcp
         )
         db.session.add(task)
@@ -1004,7 +1026,7 @@ def send_message():
     data = request.get_json()
     channel = data.get("channel", "all")
 
-    now = datetime.datetime.now()
+    now = now_ist()
     msg = Message(
         id        = "m" + str(int(now.timestamp() * 1000)),
         from_name = user.name,
@@ -1215,7 +1237,7 @@ def get_ratings():
         for r in Rating.query.filter_by(date=today_str()).all()
     }
 
-    thirty_days_ago = (datetime.datetime.utcnow() - datetime.timedelta(days=29)).strftime("%Y-%m-%d")
+    thirty_days_ago = (now_ist() - datetime.timedelta(days=29)).strftime("%Y-%m-%d")
     history = [
         {"date": r.date, "userId": r.userId, "score": r.score}
         for r in Rating.query
@@ -1457,7 +1479,7 @@ def create_project():
         team_members=data.get("team_members", "").strip(),
         description=data.get("description", "").strip(),
         progress_percentage=pct,
-        created_at=datetime.datetime.now().strftime("%b %d, %Y")
+        created_at=now_ist().strftime("%b %d, %Y")
     )
     db.session.add(p)
     db.session.commit()
@@ -1501,7 +1523,7 @@ def bulk_projects():
                 team_members=(row.get("team_members") or "").strip(),
                 description=(row.get("description") or "").strip(),
                 progress_percentage=pct,
-                created_at=datetime.datetime.now().strftime("%b %d, %Y")
+                created_at=now_ist().strftime("%b %d, %Y")
             ))
             created += 1
 
@@ -1601,7 +1623,7 @@ def upload_projects_xlsx():
                 start_date=row["start_date"], team_members=row["team_members"],
                 description=row["description"],
                 progress_percentage=row["progress_percentage"],
-                created_at=datetime.datetime.now().strftime("%b %d, %Y")
+                created_at=now_ist().strftime("%b %d, %Y")
             ))
             created += 1
 
@@ -1710,7 +1732,7 @@ def bulk_interns():
                 domain=(row.get("domain") or "").strip(),
                 joining_date=(row.get("joining_date") or "").strip(),
                 status=(row.get("status") or "Active").strip(),
-                created_at=datetime.datetime.now().strftime("%b %d, %Y")
+                created_at=now_ist().strftime("%b %d, %Y")
             ))
             created += 1
         db.session.commit()
@@ -1737,7 +1759,7 @@ def add_intern():
         domain=(data.get("domain") or "").strip(),
         joining_date=(data.get("joining_date") or "").strip(),
         status=(data.get("status") or "Active").strip(),
-        created_at=datetime.datetime.now().strftime("%b %d, %Y")
+        created_at=now_ist().strftime("%b %d, %Y")
     )
     db.session.add(i)
     db.session.commit()
@@ -1881,7 +1903,7 @@ def get_upcoming_birthdays():
     if not is_founder_like(caller):
         return jsonify({"error": "Forbidden"}), 403
 
-    today   = datetime.date.today()
+    today   = today_ist()
     results = []
 
     candidates = User.query.filter(
@@ -1994,7 +2016,7 @@ def upload_project_tasks():
                 assigned_to  = col(row_dict, "Assigned To", "assigned to", "AssignedTo", "Assignee"),
                 status       = status,
                 due_date     = col(row_dict, "Due Date", "due date", "DueDate", "Due"),
-                created_at   = datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
+                created_at   = now_ist().strftime("%b %d, %Y %I:%M %p")
             ))
 
         if not new_rows:
@@ -2133,7 +2155,7 @@ def get_or_create_daily_quote():
     if existing:
         return existing
 
-    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = (now_ist() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
     yesterday_q = DailyQuote.query.filter_by(date=yesterday).first()
     avoid_text  = yesterday_q.quote_text if yesterday_q else None
 
@@ -2158,7 +2180,7 @@ def send_daily_quote_email(recipient_email, quote_text, author):
     smtp_email = os.getenv("SMTP_EMAIL", "").strip()
     smtp_pass  = os.getenv("SMTP_PASSWORD", "").strip()
 
-    today_display = datetime.datetime.now().strftime("%d %B %Y")
+    today_display = now_ist().strftime("%d %B %Y")
     subject  = f"🌞 Your Daily Motivation | PGI TaskFlow — {today_display}"
     plain    = (
         f"Good Morning,\n\nToday's motivation:\n\n"
@@ -2393,7 +2415,7 @@ def dispatch_daily_quote():
     """
     with app.app_context():
         today   = today_str()
-        now     = datetime.datetime.now()
+        now     = now_ist()
         now_str_val = now.strftime("%I:%M %p")
         now_iso_val = now.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -2618,7 +2640,7 @@ def create_todo():
         user_id    = uid,
         title      = title,
         completed  = False,
-        created_at = datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
+        created_at = now_ist().strftime("%b %d, %Y %I:%M %p")
     )
     db.session.add(todo)
     db.session.commit()
@@ -2680,9 +2702,9 @@ def clear_completed_todos():
 
 def check_birthday_alerts():
     with app.app_context():
-        today     = datetime.date.today()
+        today     = today_ist()
         target    = today + datetime.timedelta(days=7)
-        now_str_v = datetime.datetime.now().strftime("%b %d %I:%M %p")
+        now_str_v = now_ist().strftime("%b %d %I:%M %p")
         year      = today.year
 
         candidates = User.query.filter(
@@ -2757,7 +2779,7 @@ def get_birthday_alerts():
     if not caller or not is_founder_like(caller):
         return jsonify({"error": "Forbidden"}), 403
 
-    today   = datetime.date.today()
+    today   = today_ist()
     results = []
 
     candidates = User.query.filter(
@@ -2834,7 +2856,7 @@ _DAILY_TASK_TEMPLATES = [
 def assign_daily_tasks():
     with app.app_context():
         today   = today_str()
-        now_iso_v = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        now_iso_v = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
         created = 0
 
         for tpl in _DAILY_TASK_TEMPLATES:
@@ -2899,7 +2921,7 @@ def assign_daily_tasks():
 # ─────────────────────────────────────────────
 
 if APSCHEDULER_AVAILABLE:
-    _scheduler = BackgroundScheduler(timezone="Asia/Kolkata")
+    _scheduler = BackgroundScheduler(timezone=datetime.timezone(datetime.timedelta(hours=5, minutes=30)))
 
     # Daily motivation quote — fires at 12:00 AM IST (midnight) every day
     _scheduler.add_job(
@@ -3008,5 +3030,6 @@ if __name__ == "__main__":
     print("=" * 50)
     print("  TaskFlow — Plant Green Inertia")
     print("  http://localhost:5000")
+    print("Server Timezone:", now_ist())
     print("=" * 50)
     app.run(debug=True, host="0.0.0.0", port=5000)
