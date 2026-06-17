@@ -1303,7 +1303,9 @@ function userAvatarHTML(u, size = 32, fontSize = 11) {
   if (!u) return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:#333">?</div>`;
   const c = ac(u.id);
   if (u.profile_photo) {
-    return `<img src="${u.profile_photo}" alt="${u.initials || '?'}" style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex-shrink:0">`;
+    return `<img src="${u.profile_photo}" alt="${u.initials || '?'}" loading="lazy"
+      style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex-shrink:0"
+      onerror="this.onerror=null;this.outerHTML='<div class=&quot;avatar&quot; style=&quot;width:${size}px;height:${size}px;font-size:${fontSize}px;background:linear-gradient(135deg,${c}99,${c})&quot;>${u.initials||'?'}</div>'">`;
   }
   return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:linear-gradient(135deg,${c}99,${c});flex-shrink:0">${u.initials || '?'}</div>`;
 }
@@ -1398,18 +1400,26 @@ function doLogout() {
 // INIT
 // ═══════════════════════════════════════════════════════════
 async function initApp() {
-  const c = ac(currentUser.id);
-  // Sidebar avatar: show profile photo or initials
-  const sidebarAvatar = document.getElementById('user-avatar');
-  if (currentUser.profile_photo) {
-    sidebarAvatar.textContent = '';
-    sidebarAvatar.style.background = 'none';
-    sidebarAvatar.style.padding = '0';
-    sidebarAvatar.innerHTML = `<img src="${currentUser.profile_photo}" alt="${currentUser.initials}" style="width:32px;height:32px;border-radius:50%;object-fit:cover">`;
-  } else {
-    sidebarAvatar.textContent   = currentUser.initials || '?';
-    sidebarAvatar.style.background = `linear-gradient(135deg,${c}99,${c})`;
+  // Load users FIRST so the current user's live profile_photo is available
+  if (API_ONLINE) await loadUsers();
+
+  // Reconcile the cached currentUser with the authoritative server record
+  const live = ALL_USERS.find(u => u.id === currentUser.id);
+  if (live) {
+    currentUser = { ...currentUser, ...live };
+    localStorage.setItem('pgi_user', JSON.stringify(currentUser));
   }
+
+  // Sidebar avatar: show profile photo or initials (always from live data)
+  const sidebarAvatar = document.getElementById('user-avatar');
+  sidebarAvatar.style.background = 'none';
+  sidebarAvatar.style.padding = '0';
+  sidebarAvatar.style.overflow = 'hidden';
+  sidebarAvatar.style.display = 'flex';
+  sidebarAvatar.style.alignItems = 'center';
+  sidebarAvatar.style.justifyContent = 'center';
+  sidebarAvatar.innerHTML = userAvatarHTML(currentUser, 32, 12);
+
   document.getElementById('user-name').textContent     = currentUser.name;
   document.getElementById('user-role-lbl').textContent = isFounderLike(currentUser) ? 'Founder' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
 
@@ -1436,7 +1446,7 @@ async function initApp() {
 
   if (API_ONLINE) {
     await Promise.all([
-      loadUsers(), loadTasks(), loadAttendance(),
+      loadTasks(), loadAttendance(),
       loadMorningMessage(), loadMessages('all'), loadNotifications(),
       isFounderLike(currentUser) ? loadVbGoalsFromApi() : Promise.resolve(),
       isFounderLike(currentUser) ? loadDailyQuoteStats() : Promise.resolve()
@@ -3422,7 +3432,7 @@ async function createUser() {
       try {
         const photoData = new FormData();
         photoData.append('photo', photoFile);
-        const photoRes = await fetch(API_BASE + '/users/' + res.user.id + '/upload-photo', {
+        const photoRes = await fetch(API_BASE + '/users/' + res.user.id + '/photo', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + API_TOKEN },
           body: photoData
@@ -3574,7 +3584,7 @@ const euRole = document.getElementById('eu-role').value;
       try {
         const photoData = new FormData();
         photoData.append('photo', photoFile);
-        const photoRes = await fetch(API_BASE + '/users/' + _editUserId + '/upload-photo', {
+        const photoRes = await fetch(API_BASE + '/users/' + _editUserId + '/photo', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + API_TOKEN },
           body: photoData
