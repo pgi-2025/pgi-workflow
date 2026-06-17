@@ -13,6 +13,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 import os
+import uuid
 import datetime
 import datetime as dt_module
 import smtplib
@@ -420,10 +421,11 @@ def login():
         "user": {
             "id": user.id, "email": user.email, "role": user.role,
             "name": user.name, "initials": user.initials,
-            "team": user.team, "specialty": user.specialty
+            "team": user.team, "specialty": user.specialty,
+            "profile_photo": user.profile_photo,
+            "active": user.active if user.active is not None else True
         }
     })
-
 
 # ─────────────────────────────────────────────
 # CURRENT USER
@@ -438,9 +440,10 @@ def me():
     return jsonify({
         "id": user.id, "email": user.email, "role": user.role,
         "name": user.name, "initials": user.initials,
-        "team": user.team, "specialty": user.specialty
+        "team": user.team, "specialty": user.specialty,
+        "profile_photo": user.profile_photo,
+        "active": user.active if user.active is not None else True
     })
-
 
 # ─────────────────────────────────────────────
 # USERS
@@ -642,7 +645,7 @@ def set_user_role(user_id):
     }})
 
 
-@app.route("/api/users/<user_id>/upload-photo", methods=["POST"])
+@app.route("/api/users/<user_id>/photo", methods=["POST"])
 @jwt_required()
 def upload_profile_photo(user_id):
     caller = db.session.get(User, get_jwt_identity())
@@ -656,35 +659,63 @@ def upload_profile_photo(user_id):
     photo = request.files["photo"]
     if not photo or photo.filename == "":
         return jsonify({"error": "Empty file"}), 400
+
     ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
     MAX_SIZE_BYTES = 5 * 1024 * 1024
     ext = photo.filename.rsplit(".", 1)[-1].lower() if "." in photo.filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         return jsonify({"error": f"Invalid file type '.{ext}'. Allowed: jpg, jpeg, png, webp"}), 400
+
     photo.seek(0, 2)
     file_size = photo.tell()
     photo.seek(0)
     if file_size > MAX_SIZE_BYTES:
         return jsonify({"error": "File too large. Maximum allowed size is 5 MB"}), 400
-    safe_filename = secure_filename(f"{user_id}.{ext}")
+
+    unique_name   = f"{user_id}_{uuid.uuid4().hex[:10]}.{ext}"
+    safe_filename = secure_filename(unique_name)
+
     upload_dir = os.path.join(os.path.dirname(__file__), "uploads", "profile_photos")
     os.makedirs(upload_dir, exist_ok=True)
     save_path = os.path.join(upload_dir, safe_filename)
     photo.save(save_path)
-    photo_url = f"/uploads/profile_photos/{safe_filename}"
+
+    if user.profile_photo:
+        old_name = user.profile_photo.rsplit("/", 1)[-1]
+        old_path = os.path.join(upload_dir, secure_filename(old_name))
+        if os.path.isfile(old_path) and old_path != save_path:
+            try:
+                os.remove(old_path)
+            except Exception as e:
+                print(f"[WARN] Could not remove old profile photo: {e}")
+
+    photo_url = f"/api/profile-photo/{safe_filename}"
     user.profile_photo = photo_url
     db.session.commit()
+
     return jsonify({"success": True, "profile_photo": photo_url})
 
 
-@app.route("/uploads/profile_photos/<filename>")
+@app.route("/api/users/<user_id>/upload-photo", methods=["POST"])
+@jwt_required()
+def upload_profile_photo_legacy(user_id):
+    return upload_profile_photo(user_id)
+
+
+@app.route("/api/profile-photo/<filename>")
 def serve_profile_photo(filename):
     safe = secure_filename(filename)
     path = os.path.join(os.path.dirname(__file__), "uploads", "profile_photos", safe)
     if not os.path.exists(path):
         return jsonify({"error": "Not found"}), 404
-    return send_file(path)
+    resp = send_file(path)
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
 
+
+@app.route("/uploads/profile_photos/<filename>")
+def serve_profile_photo_legacy(filename):
+    return serve_profile_photo(filename)
 
 @app.route("/api/audit-logs")
 @jwt_required()
