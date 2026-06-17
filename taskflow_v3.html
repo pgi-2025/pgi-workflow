@@ -1313,10 +1313,10 @@ function uobj(id)  { return ALL_USERS.find(u => u.id === id); }
 function uinitials(id) { return uobj(id)?.initials || id.slice(0,2).toUpperCase(); }
 function escapeHTML(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-function getEmployees()   { return ALL_USERS.filter(u => u.role === 'employee'); }
+function getEmployees()   { return ALL_USERS.filter(u => u.role === 'employee' || u.role === 'founder_assistant'); }
 function getInterns()     { return ALL_USERS.filter(u => u.role === 'intern'); }
 function getTrainers()    { return ALL_USERS.filter(u => u.role === 'trainer'); }
-function getNonFounders() { return ALL_USERS.filter(u => !isFounderLike(u)); }
+function getNonFounders() { return ALL_USERS.filter(u => u.role !== 'founder'); }
 function isFounderLike(u) { return u && (u.role === 'founder' || u.role === 'founder_assistant'); }
 
 // ═══════════════════════════════════════════════════════════
@@ -2388,6 +2388,30 @@ async function renderAttendance() {
     const aCount = all.length - pCount;
     const emps   = getEmployees(), interns = getInterns(), trs = getTrainers();
 
+    // Founder Assistant is also a tracked employee — show their own personal
+    // In/Out toggle above the admin overview so they can mark themselves present.
+    const selfAttObj = ATTENDANCE[currentUser.id] || {};
+    const selfStatus  = selfAttObj.status || 'absent';
+    const selfCiTime  = formatAttendanceTime(selfAttObj.checkin_time);
+    const selfCoTime  = formatAttendanceTime(selfAttObj.checkout_time);
+    const selfToggleHTML = currentUser.role === 'founder_assistant' ? `
+      <div style="margin-bottom:24px">
+        <div class="section-header" style="margin-bottom:12px"><div class="section-title">My Attendance</div></div>
+        <div class="attendance-bar-wrap fade">
+          <div class="att-user-info"><div class="att-user-name">${currentUser.name}</div><div class="att-user-role">Founder Assistant</div></div>
+          <div class="att-toggle-wrap">
+            <span class="att-label-absent">Absent</span>
+            <div class="att-slider-track ${selfStatus}" onclick="toggleAttendance('${currentUser.id}')"><div class="att-slider-thumb"></div></div>
+            <span class="att-label-present">Present</span>
+          </div>
+        </div>
+        ${selfCiTime !== '--' || selfCoTime !== '--' ? `<div style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;padding:0 4px">
+          <span style="font-size:11px;color:var(--text3)">Check In: <strong style="color:var(--green)">${selfCiTime}</strong></span>
+          <span style="font-size:11px;color:var(--text3)">Check Out: <strong style="color:${selfCoTime!=='--'?'var(--red)':'var(--text3)'}">${selfCoTime}</strong></span>
+        </div>` : ''}
+      </div>
+      <div class="divider"></div>` : '';
+
     const hist = await api('GET', '/attendance/history') || [];
 
     const userDates = {};
@@ -2463,6 +2487,7 @@ async function renderAttendance() {
     }).join('');
 
     view.innerHTML = `
+      ${selfToggleHTML}
       <div class="section-header" style="margin-bottom:20px">
         <div class="section-title">Attendance Overview</div>
         <div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
