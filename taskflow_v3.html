@@ -956,6 +956,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
                   <option value="employee">Employee</option>
                   <option value="intern">Intern</option>
                   <option value="trainer">Trainer</option>
+                  <option value="founder_assistant">Founder Assistant</option>
                 </select>
               </div>
               <div class="form-field" id="nu-team-field">
@@ -3074,9 +3075,11 @@ function renderUsersList() {
   console.log('[renderUsersList] called, formOpen=', _addUserFormOpen);
 
   const activeTab   = container.dataset.tab || 'employees';
-  const nonFounders = ALL_USERS.filter(u => u.role !== 'founder');
-  const employees   = nonFounders.filter(u => u.role === 'employee' || u.role === 'trainer' || u.role === 'founder_assistant');
-  const interns     = nonFounders.filter(u => u.role === 'intern');
+  // Show all non-founder users plus founder_assistant in the management list
+  // (founder_assistant can be managed by the logged-in founder/founder_assistant)
+  const manageable = ALL_USERS.filter(u => u.role !== 'founder');
+  const employees   = manageable.filter(u => u.role === 'employee' || u.role === 'trainer' || u.role === 'founder_assistant');
+  const interns     = manageable.filter(u => u.role === 'intern');
   const members     = activeTab === 'interns' ? interns : employees;
 
   const userRow = (u) => {
