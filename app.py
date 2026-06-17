@@ -1119,7 +1119,7 @@ def post_morning_message():
     message_text = str(data.get("text", ""))
     # Send to everyone who is NOT a founder-level account
     non_founders = User.query.filter(
-        User.role.notin_(["founder", "founder_assistant"])
+        User.role != "founder"
     ).all()
     for u in non_founders:
         make_notif(
@@ -1258,7 +1258,7 @@ def get_attendance():
     today   = today_str()
     records = {a.userId: a for a in Attendance.query.filter_by(date=today).all()}
     users   = User.query.filter(
-        User.role.notin_(["founder", "founder_assistant"])
+        User.role != "founder"
     ).all()
     result  = []
     for u in users:
@@ -1269,6 +1269,7 @@ def get_attendance():
             "initials":      u.initials,
             "role":          u.role,
             "team":          u.team,
+            "profile_photo": u.profile_photo,
             "status":        att.status        if att else "absent",
             "date":          today,
             "checkin_time":  att.checkin_time  if att else "",
@@ -1736,7 +1737,7 @@ def dashboard_stats():
     private_count = Project.query.filter_by(category="Private").count()
     b2c_count     = Project.query.filter_by(category="B2C").count()
 
-    employees = User.query.filter_by(role="employee").all()
+    employees = User.query.filter(User.role.in_(["employee", "founder_assistant"])).all()
     interns   = User.query.filter_by(role="intern").all()
 
     intern_roster = Intern.query.all()
@@ -1848,7 +1849,7 @@ def get_upcoming_birthdays():
     results = []
 
     candidates = User.query.filter(
-        User.role.notin_(["founder", "founder_assistant"]),
+        User.role != "founder",
         User.date_of_birth != None,
         User.date_of_birth != ""
     ).all()
@@ -2724,7 +2725,7 @@ def get_birthday_alerts():
     results = []
 
     candidates = User.query.filter(
-        User.role.notin_(["founder", "founder_assistant"]),
+        User.role != "founder",
         User.date_of_birth != None,
         User.date_of_birth != ""
     ).all()
