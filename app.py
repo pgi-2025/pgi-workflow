@@ -486,14 +486,19 @@ def create_user():
         except ValueError:
             return jsonify({"error": "Invalid date_of_birth format. Use YYYY-MM-DD"}), 400
 
+    role_value = data.get("role", "employee")
+    team_value = data.get("team")
+    if role_value == "founder_assistant" and not team_value:
+        team_value = "Founder Assistant"
+
     user = User(
         id=data.get("id") or ("u" + str(int(datetime.datetime.now().timestamp() * 1000))),
         email=email,
         password=generate_password_hash(data.get("password", "emp2025")),
-        role=data.get("role", "employee"),
+        role=role_value,
         name=name,
         initials=initials,
-        team=data.get("team"),
+        team=team_value,
         specialty=data.get("specialty"),
         phone=(data.get("phone") or "").strip() or None,
         department=(data.get("department") or "").strip() or None,
