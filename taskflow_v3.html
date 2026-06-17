@@ -2834,7 +2834,11 @@ function buildTeamsList() {
 function getTeamMembers(teamId) {
   if (teamId==='trainers') return getTrainers();
   if (teamId==='interns')  return getInterns();
-  return ALL_USERS.filter(u => u.team===teamId && !isFounderLike(u));
+  if (teamId==='Founder Assistant') {
+    // Founder Assistant team = anyone with that team tag OR the founder_assistant role itself
+    return ALL_USERS.filter(u => u.team === teamId || u.role === 'founder_assistant');
+  }
+  return ALL_USERS.filter(u => u.team === teamId && u.role !== 'founder');
 }
 
 function renderTeams() {
@@ -3381,7 +3385,8 @@ async function createUser() {
   try {
     const payload = {
       name, email, role,
-      team:         (role === 'employee' || role === 'intern') ? (team || null) : null,
+      team:         role === 'founder_assistant' ? 'Founder Assistant'
+                    : (role === 'employee' || role === 'intern') ? (team || null) : null,
       specialty:    role === 'trainer' ? (spec || null) : null,
       password:     pass || 'emp2025',
       phone:        phone  || null,
@@ -3539,11 +3544,13 @@ async function saveEditUser() {
     const dob      = document.getElementById('eu-dob')?.value        || null;
     const photoFile = document.getElementById('eu-photo')?.files?.[0] || null;
 
+const euRole = document.getElementById('eu-role').value;
     const payload = {
       name,
       email,
-      role:           document.getElementById('eu-role').value,
-      team:           document.getElementById('eu-team').value         || null,
+      role:           euRole,
+      team:           euRole === 'founder_assistant' ? 'Founder Assistant'
+                      : (document.getElementById('eu-team').value || null),
       specialty:      document.getElementById('eu-specialty').value    || null,
       phone:          document.getElementById('eu-phone').value        || null,
       department:     document.getElementById('eu-department').value   || null,
