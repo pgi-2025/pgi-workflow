@@ -389,10 +389,19 @@ def login():
     password = data.get("password", "")
     role     = data.get("role")
 
-    if role == "employee":
+    # founder_assistant has full Founder-level access and may log in via the
+    # "Founder" tab.  The "Employee" tab also accepts them for backward
+    # compatibility with existing bookmarks.
+    FOUNDER_LIKE_ROLES = ["founder", "founder_assistant"]
+    if role == "founder":
         user = User.query.filter(
             db.func.lower(User.email) == email,
-            User.role.in_(["employee", "founder_assistant"])
+            User.role.in_(FOUNDER_LIKE_ROLES)
+        ).first()
+    elif role == "employee":
+        user = User.query.filter(
+            db.func.lower(User.email) == email,
+            User.role.in_(["employee", "founder_assistant", "trainer"])
         ).first()
     else:
         user = User.query.filter(
@@ -602,6 +611,31 @@ def update_user(user_id):
         "active":       user.active if user.active is not None else True
     }})
 
+@app.route("/api/users/<user_id>/role", methods=["PATCH"])
+@jwt_required()
+def set_user_role(user_id):
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Only founder can change roles"}), 403
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    data = request.get_json() or {}
+    new_role = (data.get("role") or "").strip()
+    VALID_ROLES = {"founder", "founder_assistant", "employee", "intern", "trainer"}
+    if new_role not in VALID_ROLES:
+        return jsonify({"error": f"Invalid role. Must be one of {sorted(VALID_ROLES)}"}), 400
+    user.role = new_role
+    db.session.add(AuditLog(
+        action=f"{caller.name} changed {user.name}'s role to {new_role}",
+        performed_by=caller.name,
+        timestamp=datetime.datetime.now().strftime("%b %d, %Y %I:%M %p")
+    ))
+    db.session.commit()
+    return jsonify({"success": True, "user": {
+        "id": user.id, "name": user.name, "role": user.role
+    }})
+
 
 @app.route("/api/users/<user_id>/upload-photo", methods=["POST"])
 @jwt_required()
@@ -770,13 +804,17 @@ def submit_proof(task_id):
     task.proof_link  = data.get("link")
 
     submitter = db.session.get(User, uid)
-    founder   = User.query.filter_by(role="founder").first()
-    if founder:
-        make_notif(
-            userId=founder.id, ntype="proof",
-            title="Proof Submitted",
-            body=submitter.name + ' submitted proof for "' + task.title + '"'
-        )
+    # Notify all Founder-level accounts (founder + founder_assistant)
+    founder_accounts = User.query.filter(
+        User.role.in_(["founder", "founder_assistant"])
+    ).all()
+    for f in founder_accounts:
+        if f.id != uid:   # don't notify the submitter themselves if they're founder-like
+            make_notif(
+                userId=f.id, ntype="proof",
+                title="Proof Submitted",
+                body=submitter.name + ' submitted proof for "' + task.title + '"'
+            )
     db.session.commit()
     return jsonify({"success": True})
 
@@ -1079,7 +1117,10 @@ def post_morning_message():
     db.session.add(msg)
 
     message_text = str(data.get("text", ""))
-    non_founders = User.query.filter(User.role != "founder").all()
+    # Send to everyone who is NOT a founder-level account
+    non_founders = User.query.filter(
+        User.role.notin_(["founder", "founder_assistant"])
+    ).all()
     for u in non_founders:
         make_notif(
             userId=u.id, ntype="morning",
@@ -1216,7 +1257,9 @@ def attendance_to_dict(att_row, user_obj=None):
 def get_attendance():
     today   = today_str()
     records = {a.userId: a for a in Attendance.query.filter_by(date=today).all()}
-    users   = User.query.filter(User.role != "founder").all()
+    users   = User.query.filter(
+        User.role.notin_(["founder", "founder_assistant"])
+    ).all()
     result  = []
     for u in users:
         att = records.get(u.id)
