@@ -1299,20 +1299,28 @@ function ac(id) { const i = ALL_USERS.findIndex(u => u.id === id); return AVATAR
  * @param {number} size - pixel size (default 32)
  * @param {number} fontSize - font size for initials (default 11)
  */
-function userAvatarHTML(u, size = 32, fontSize = 11) {
-  if (!u) return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:#333">?</div>`;
+function userAvatarHTML(u, size = 32, fontSize = 11, cssClass = 'avatar') {
+  if (!u) return `<div class="${cssClass}" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:#333">?</div>`;
   const c = ac(u.id);
   if (u.profile_photo) {
     return `<img src="${u.profile_photo}" alt="${u.initials || '?'}" loading="lazy"
       style="width:${size}px;height:${size}px;border-radius:50%;object-fit:cover;flex-shrink:0"
-      onerror="this.onerror=null;this.outerHTML='<div class=&quot;avatar&quot; style=&quot;width:${size}px;height:${size}px;font-size:${fontSize}px;background:linear-gradient(135deg,${c}99,${c})&quot;>${u.initials||'?'}</div>'">`;
+      onerror="this.onerror=null;this.outerHTML='<div class=&quot;${cssClass}&quot; style=&quot;width:${size}px;height:${size}px;font-size:${fontSize}px;background:linear-gradient(135deg,${c}99,${c})&quot;>${u.initials||'?'}</div>'">`;
   }
-  return `<div class="avatar" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:linear-gradient(135deg,${c}99,${c});flex-shrink:0">${u.initials || '?'}</div>`;
+  return `<div class="${cssClass}" style="width:${size}px;height:${size}px;font-size:${fontSize}px;background:linear-gradient(135deg,${c}99,${c});flex-shrink:0">${u.initials || '?'}</div>`;
 }
 function nc(id) { return ac(id); }
 function uname(id) { return ALL_USERS.find(u => u.id === id)?.name || id; }
 function uobj(id)  { return ALL_USERS.find(u => u.id === id); }
 function uinitials(id) { return uobj(id)?.initials || id.slice(0,2).toUpperCase(); }
+const ROLE_LABELS = {
+  founder:           'Founder',
+  founder_assistant: 'Founder Assistant',
+  employee:          'Employee',
+  intern:            'Intern',
+  trainer:           'Trainer'
+};
+function roleLabel(role) { return ROLE_LABELS[role] || (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Team Member'); }
 function escapeHTML(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function getEmployees()   { return ALL_USERS.filter(u => u.role === 'employee' || u.role === 'founder_assistant'); }
@@ -1421,8 +1429,7 @@ async function initApp() {
   sidebarAvatar.innerHTML = userAvatarHTML(currentUser, 32, 12);
 
   document.getElementById('user-name').textContent     = currentUser.name;
-  document.getElementById('user-role-lbl').textContent = isFounderLike(currentUser) ? 'Founder' : currentUser.role === 'trainer' ? 'Trainer' : currentUser.role === 'intern' ? 'Intern' : 'Team Member';
-
+  document.getElementById('user-role-lbl').textContent = roleLabel(currentUser.role);
   document.querySelectorAll('.founder-only').forEach(el => { el.style.display = isFounderLike(currentUser) ? '' : 'none'; });
 
   const h = new Date().getHours();
@@ -2758,7 +2765,6 @@ function exportAttendanceCSV() {
 function founderAttCard(u) {
     const attObj = ATTENDANCE[u.id] || {};
     const status = attObj.status || "absent";
-    const color = ac(u.id);
 
     const checkIn = formatAttendanceTime(attObj.checkin_time);
     const checkOut = formatAttendanceTime(attObj.checkout_time);
@@ -2766,18 +2772,7 @@ function founderAttCard(u) {
     return `
     <div class="founder-att-card ${status === "present" ? "present-card" : "absent-card"}">
 
-        ${
-            u.profile_photo
-                ? `<img src="${u.profile_photo}"
-                        style="width:28px;height:28px;border-radius:50%;object-fit:cover">`
-                : `<div class="avatar"
-                        style="background:linear-gradient(135deg,${color}99,${color});
-                               width:28px;
-                               height:28px;
-                               font-size:10px">
-                        ${u.initials}
-                   </div>`
-        }
+        ${userAvatarHTML(u, 28, 10)}
 
         <div style="flex:1">
 
@@ -2786,14 +2781,12 @@ function founderAttCard(u) {
             </div>
 
             <div style="font-size:10px;color:var(--text3)">
-                ${u.team || u.role}
+                ${u.team || roleLabel(u.role)}
             </div>
 
             <div style="font-size:10px;color:var(--text3);margin-top:4px">
                 🕒 In : ${checkIn}
             </div>
-
-            
 
         </div>
 
@@ -2861,7 +2854,7 @@ function renderTeams() {
     const pending = TASKS.filter(t => mems.some(m=>m.id===t.assignedTo) && t.status==='submitted').length;
     return `<div class="team-card" onclick="viewTeam('${team.id}')">
       <div class="team-name">${team.name}</div><div class="team-desc">${team.desc}</div>
-      <div class="members-row">${mems.slice(0,6).map((m,i)=>m.profile_photo?`<img src="${m.profile_photo}" alt="${m.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0">`:(`<div class="mini-avatar" style="background:${colors[i%colors.length]}">${m.initials}</div>`)
+      <div class="members-row">${mems.slice(0,6).map((m,i)=>m.profile_photo?`<img src="${m.profile_photo}" alt="${m.initials}" loading="lazy" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.onerror=null;this.outerHTML='<div class=&quot;mini-avatar&quot; style=&quot;background:${colors[i%colors.length]}&quot;>${m.initials}</div>'">`:(`<div class="mini-avatar" style="background:${colors[i%colors.length]}">${m.initials}</div>`)
 ).join('')}${mems.length>6?`<div class="mini-avatar" style="background:var(--surface3);color:var(--text2);font-size:8px">+${mems.length-6}</div>`:''}</div>
       <div class="team-footer"><div class="team-count">${mems.length} member${mems.length!==1?'s':''}</div>${pending>0?`<span class="badge badge-blue" style="font-size:10px">${pending} review</span>`:'<span class="badge badge-green" style="font-size:10px">All clear</span>'}</div>
     </div>`;
@@ -2878,10 +2871,10 @@ function renderTeamDetail(teamId) {
     <div style="margin-bottom:20px"><div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">${team.name}</div><div style="font-size:13px;color:var(--text2)">${team.desc}</div></div>
     <div class="section-header"><div class="section-title">Members (${mems.length})</div></div>
     <div class="members-list">${!mems.length?'<div class="empty-state" style="padding:24px"><p>No members yet</p></div>':mems.map(m=>{
-      const tasks=TASKS.filter(t=>t.assignedTo===m.id); const done=tasks.filter(t=>t.status==='completed').length; const c=ac(m.id); const att=ATTENDANCE[m.id]?.status || 'absent';
+      const tasks=TASKS.filter(t=>t.assignedTo===m.id); const done=tasks.filter(t=>t.status==='completed').length; const att=ATTENDANCE[m.id]?.status || 'absent';
       return `<div class="member-row" onclick="viewMember('${m.id}')">
-        <div class="avatar" style="background:linear-gradient(135deg,${c}99,${c})">${m.initials}</div>
-        <div class="member-info"><div class="member-name">${m.name}</div><div class="member-email">${m.email}</div></div>
+        ${userAvatarHTML(m, 36, 12)}
+        <div class="member-info"><div class="member-name">${m.name}</div><div class="member-email">${m.email} · ${roleLabel(m.role)}</div></div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <span class="att-status-pill ${att==='present'?'att-present-pill':'att-absent-pill'}" style="font-size:9px">${att==='present'?'PRESENT':'ABSENT'}</span>
           <div class="member-stats"><div class="m-stat"><div class="m-stat-val">${tasks.length}</div><div class="m-stat-lbl">Tasks</div></div><div class="m-stat"><div class="m-stat-val">${done}</div><div class="m-stat-lbl">Done</div></div></div>
@@ -2894,14 +2887,14 @@ function viewMember(uid) { currentMemberView=uid; renderMemberDetail(uid); }
 
 function renderMemberDetail(uid) {
   const user=uobj(uid); if(!user) return;
-  const tasks=TASKS.filter(t=>t.assignedTo===uid); const done=tasks.filter(t=>t.status==='completed').length; const c=ac(uid);
+  const tasks=TASKS.filter(t=>t.assignedTo===uid); const done=tasks.filter(t=>t.status==='completed').length;
   const teamId=currentTeamView||TEAM_CONFIG.find(t=>t.id===user.team)?.id||'trainers';
   const teamName=buildTeamsList().find(t=>t.id===teamId)?.name||'Team';
   document.getElementById('teams-view').innerHTML = `
     <div class="back-btn fade" onclick="currentMemberView=null;renderTeamDetail('${teamId}')">← ${teamName}</div>
     <div class="member-header-card fade">
-      <div class="large-avatar" style="background:linear-gradient(135deg,${c}99,${c})">${user.initials}</div>
-      <div class="member-h-info"><h2>${user.name}</h2><p>${user.email} · ${teamName}${user.specialty?' · '+user.specialty:''}</p></div>
+      ${userAvatarHTML(user, 58, 20, 'large-avatar')}
+      <div class="member-h-info"><h2>${user.name}</h2><p>${user.email} · ${roleLabel(user.role)} · ${teamName}${user.specialty?' · '+user.specialty:''}</p></div>
       <div class="member-h-stats">
         <div class="m-stat" style="text-align:center"><div class="m-stat-val" style="font-size:24px">${tasks.length}</div><div class="m-stat-lbl">Tasks</div></div>
         <div class="m-stat" style="text-align:center"><div class="m-stat-val" style="font-size:24px;color:var(--green)">${done}</div><div class="m-stat-lbl">Done</div></div>
@@ -3138,7 +3131,7 @@ function renderUsersList() {
         ${dobDisplay}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span class="badge badge-gray" style="font-size:10px">${u.role}</span>
+        <span class="badge badge-gray" style="font-size:10px">${roleLabel(u.role)}</span>
         <span class="badge badge-gray" style="font-size:10px">${u.role === 'intern' ? domain : teamName}</span>
         ${u.phone ? `<span style="font-size:10px;color:#25D366">📱 ${u.phone}</span>` : ''}
       </div>
