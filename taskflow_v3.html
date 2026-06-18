@@ -739,6 +739,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1" width="12" height="14" rx="2"/><path d="M5 5h6M5 8h6M5 11h3"/></svg>
       My Notepad
      </div>
+      <div class="nav-item founder-only" id="nav-autotasks" onclick="showPanel('autotasks',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/><path d="M4 2.5l8 0M4 13.5l8 0"/></svg>
+        Auto Tasks
+      </div>
 
     </nav>
 
@@ -880,6 +884,9 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
           💡 <strong style="color:var(--text2)">To embed your calendar:</strong> In Google Calendar → Settings → your calendar → "Integrate calendar" → copy the <em>Embed code</em> src URL and replace the <code style="color:var(--gold2)">YOUR_CALENDAR_ID</code> part in this page's source.
         </div>
       </div>
+
+     <!-- AUTO TASKS -->
+      <div class="panel" id="panel-autotasks"></div>
 
       <!-- NOTEPAD -->
 <div class="panel" id="panel-notepad">
@@ -3840,6 +3847,7 @@ function showPanel(name,navEl) {
     users:['Manage Users','Add or remove team members'],
     ratings:['Rate Employees','Daily performance ratings'],
     notepad:['My Notepad','Your private to-do list'],
+    autotasks:['Auto Tasks','Scheduled task templates'],
     mastermind:['PGI Mastermind','Projects, Interns & Intelligence']
   };
   const t=titles[name]||['TaskFlow',''];
@@ -3855,6 +3863,7 @@ function showPanel(name,navEl) {
   if(name==='assign')     populateMemberSelect();
   if(name==='ratings')    {loadRatings().then(()=>{renderRatings();setTimeout(drawRatingGraph,80);});}
   if(name==='notepad')    renderNotepad();
+  if(name==='autotasks')  renderAutoTasks();
   if(name==='mastermind') renderMastermind();
   closeSidebar();
 }
@@ -5098,6 +5107,342 @@ function ensureXLSX() {
   });
   return _xlsxLoadPromise;
 }
+
+// ═══════════════════════════════════════════════════════════
+// AUTO TASKS — Template Manager
+// ═══════════════════════════════════════════════════════════
+let AUTO_TASK_TEMPLATES = [];
+let _editingTemplateId  = null;
+
+const FREQ_LABELS = { daily: '🔁 Daily', weekly: '📅 Weekly', monthly: '🗓 Monthly' };
+const FREQ_COLORS = {
+  daily:   { bg: 'rgba(34,197,94,0.12)',  color: '#5EE89A', border: 'rgba(34,197,94,0.3)' },
+  weekly:  { bg: 'rgba(56,189,248,0.12)', color: '#7EB8F5', border: 'rgba(56,189,248,0.3)' },
+  monthly: { bg: 'rgba(251,191,36,0.12)', color: '#FBBF24', border: 'rgba(251,191,36,0.3)' },
+};
+
+async function renderAutoTasks() {
+  const panel = document.getElementById('panel-autotasks');
+  if (!panel) return;
+  panel.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading templates...</div>';
+
+  const data = await api('GET', '/task-templates');
+  AUTO_TASK_TEMPLATES = Array.isArray(data) ? data : [];
+  _buildAutoTasksUI(panel);
+}
+
+function _buildAutoTasksUI(panel) {
+  const templates = AUTO_TASK_TEMPLATES;
+
+  panel.innerHTML = `
+    <div style="max-width:720px">
+      <div class="section-header" style="margin-bottom:20px">
+        <div>
+          <div style="font-family:'DM Serif Display',serif;font-size:22px">Auto Task Templates</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:3px">Tasks dispatched automatically on a schedule to teams or individuals</div>
+        </div>
+        <button class="btn-sm btn-gold" onclick="openAutoTaskForm()">+ New Template</button>
+      </div>
+
+      <!-- CREATE / EDIT FORM -->
+      <div id="auto-task-form" style="display:none;margin-bottom:24px">
+        <div class="assign-card">
+          <h3 style="font-size:17px;margin-bottom:4px" id="atf-heading">New Template</h3>
+          <div class="assign-sub" id="atf-sub">Configure the auto-assignment schedule</div>
+          <div class="form-field">
+            <label>Task Title</label>
+            <input type="text" id="atf-title" placeholder="e.g. Submit Daily Work Report">
+          </div>
+          <div class="form-field">
+            <label>Description</label>
+            <textarea id="atf-desc" rows="3" placeholder="Describe what needs to be done..."></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>Priority</label>
+              <select id="atf-priority">
+                <option value="high">High</option>
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>Frequency</label>
+              <select id="atf-frequency">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>Target Type</label>
+              <select id="atf-target-type" onchange="_updateAutoTaskTargetOptions()">
+                <option value="team">Entire Team</option>
+                <option value="user">Specific User</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label id="atf-target-label">Team</label>
+              <select id="atf-target-id"></select>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>Due Time <span style="font-weight:400;text-transform:none;color:var(--text3)">(optional, for display)</span></label>
+            <input type="time" id="atf-due-time">
+          </div>
+          <div class="form-field" style="display:flex;align-items:center;gap:10px">
+            <label style="margin:0;text-transform:none;letter-spacing:0;font-size:13px;font-weight:500;color:var(--text)">Active</label>
+            <input type="checkbox" id="atf-active" checked style="width:16px;height:16px;cursor:pointer">
+            <span style="font-size:11px;color:var(--text3)">Uncheck to create as paused</span>
+          </div>
+          <div class="assign-actions">
+            <button class="btn-sm btn-gold" onclick="saveAutoTaskTemplate()">Save Template</button>
+            <button class="btn-sm btn-outline" onclick="closeAutoTaskForm()">Cancel</button>
+            <button class="btn-sm btn-gold" style="background:linear-gradient(135deg,#6366F1,#8B5CF6)"
+              onclick="dispatchTemplateNow()" id="atf-dispatch-btn" style="display:none">▶ Run Now</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TEMPLATE LIST -->
+      <div id="auto-task-list">
+        ${!templates.length
+          ? `<div class="empty-state"><div class="e-icon">⏰</div><p>No templates yet.<br>Create one to start automating task assignments.</p></div>`
+          : templates.map(_templateCardHTML).join('')
+        }
+      </div>
+
+      <!-- DISPATCH LOG HINT -->
+      ${templates.length ? `<div style="margin-top:20px;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:11px;color:var(--text3);line-height:1.7">
+        ⏰ <strong style="color:var(--text2)">Automatic dispatch</strong> runs at 12:02 AM IST every day.<br>
+        Use <strong style="color:var(--text2)">▶ Run Now</strong> on any template to dispatch it immediately (deduplication still applies — it will skip users already assigned today).
+      </div>` : ''}
+    </div>`;
+
+  _updateAutoTaskTargetOptions();
+}
+
+function _templateCardHTML(tpl) {
+  const fc    = FREQ_COLORS[tpl.frequency] || FREQ_COLORS.daily;
+  const fl    = FREQ_LABELS[tpl.frequency] || tpl.frequency;
+  const pill  = `background:${fc.bg};color:${fc.color};border:1px solid ${fc.border}`;
+
+  let targetLabel = '';
+  if (tpl.target_type === 'user') {
+    targetLabel = '👤 ' + (uname(tpl.target_id) || tpl.target_id);
+  } else {
+    const team = TEAM_CONFIG.find(t => t.id === tpl.target_id);
+    targetLabel = '👥 ' + (team ? team.name : tpl.target_id);
+  }
+
+  const lastRunDisplay = tpl.last_run
+    ? `Last run: ${tpl.last_run}`
+    : 'Never dispatched';
+
+  return `<div style="background:var(--surface);border:1px solid ${tpl.active ? 'var(--border)' : 'rgba(239,68,68,0.25)'};border-radius:var(--radius);padding:0;overflow:hidden;margin-bottom:10px;transition:border-color 0.2s">
+    <div style="display:flex;align-items:stretch">
+      <div style="width:4px;flex-shrink:0;background:${tpl.active ? fc.color : '#5F7A6A'}"></div>
+      <div style="flex:1;padding:16px 18px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:4px">${escapeHTML(tpl.title)}</div>
+            ${tpl.description ? `<div style="font-size:12px;color:var(--text2);margin-bottom:8px;line-height:1.5">${escapeHTML(tpl.description)}</div>` : ''}
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+              <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;${pill}">${fl}</span>
+              ${priBadge(tpl.priority)}
+              <span style="font-size:11px;color:var(--text3)">${targetLabel}</span>
+              ${tpl.due_time ? `<span style="font-size:11px;color:var(--text3)">🕐 ${escapeHTML(tpl.due_time)}</span>` : ''}
+            </div>
+            <div style="font-size:10px;color:var(--text3);margin-top:6px">${lastRunDisplay}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
+            <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;
+              ${tpl.active
+                ? 'background:rgba(34,197,94,0.12);color:#5EE89A;border:1px solid rgba(34,197,94,0.3)'
+                : 'background:rgba(239,68,68,0.1);color:#F87171;border:1px solid rgba(239,68,68,0.3)'}">
+              ${tpl.active ? '● Active' : '○ Paused'}
+            </span>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn-tiny form-btn" onclick="editAutoTaskTemplate(${tpl.id})">✏ Edit</button>
+          <button class="btn-tiny ${tpl.active ? 'reject' : 'confirm'}" onclick="toggleAutoTaskTemplate(${tpl.id})">
+            ${tpl.active ? '⏸ Pause' : '▶ Resume'}
+          </button>
+          <button class="btn-tiny form-btn" style="background:rgba(99,102,241,0.1);border-color:rgba(99,102,241,0.35);color:#818CF8"
+            onclick="dispatchSingleTemplate(${tpl.id})">▶ Run Now</button>
+          <button class="btn-tiny danger" onclick="deleteAutoTaskTemplate(${tpl.id})">🗑 Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _updateAutoTaskTargetOptions() {
+  const typeEl  = document.getElementById('atf-target-type');
+  const targetEl = document.getElementById('atf-target-id');
+  const labelEl  = document.getElementById('atf-target-label');
+  if (!typeEl || !targetEl) return;
+
+  const type = typeEl.value;
+  if (labelEl) labelEl.textContent = type === 'team' ? 'Team' : 'User';
+  targetEl.innerHTML = '';
+
+  if (type === 'team') {
+    TEAM_CONFIG.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t.id; o.textContent = t.name;
+      targetEl.appendChild(o);
+    });
+  } else {
+    const allAssignable = ALL_USERS.filter(u => u.role !== 'founder');
+    allAssignable.forEach(u => {
+      const o = document.createElement('option');
+      o.value = u.id; o.textContent = `${u.name} (${roleLabel(u.role)})`;
+      targetEl.appendChild(o);
+    });
+  }
+}
+
+function openAutoTaskForm() {
+  _editingTemplateId = null;
+  document.getElementById('atf-heading').textContent = 'New Template';
+  document.getElementById('atf-sub').textContent     = 'Configure the auto-assignment schedule';
+  document.getElementById('atf-title').value    = '';
+  document.getElementById('atf-desc').value     = '';
+  document.getElementById('atf-priority').value = 'medium';
+  document.getElementById('atf-frequency').value = 'daily';
+  document.getElementById('atf-target-type').value = 'team';
+  document.getElementById('atf-due-time').value = '';
+  document.getElementById('atf-active').checked  = true;
+  const dispBtn = document.getElementById('atf-dispatch-btn');
+  if (dispBtn) dispBtn.style.display = 'none';
+  _updateAutoTaskTargetOptions();
+  document.getElementById('auto-task-form').style.display = 'block';
+  document.getElementById('auto-task-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function editAutoTaskTemplate(id) {
+  const tpl = AUTO_TASK_TEMPLATES.find(t => t.id === id);
+  if (!tpl) return;
+  _editingTemplateId = id;
+  document.getElementById('atf-heading').textContent = 'Edit Template';
+  document.getElementById('atf-sub').textContent     = `Editing: ${tpl.title}`;
+  document.getElementById('atf-title').value         = tpl.title      || '';
+  document.getElementById('atf-desc').value          = tpl.description || '';
+  document.getElementById('atf-priority').value      = tpl.priority   || 'medium';
+  document.getElementById('atf-frequency').value     = tpl.frequency  || 'daily';
+  document.getElementById('atf-target-type').value   = tpl.target_type || 'team';
+  document.getElementById('atf-due-time').value      = tpl.due_time   || '';
+  document.getElementById('atf-active').checked      = !!tpl.active;
+  _updateAutoTaskTargetOptions();
+  // Set target after options are populated
+  setTimeout(() => {
+    const el = document.getElementById('atf-target-id');
+    if (el) el.value = tpl.target_id || '';
+  }, 30);
+  const dispBtn = document.getElementById('atf-dispatch-btn');
+  if (dispBtn) dispBtn.style.display = 'inline-flex';
+  document.getElementById('auto-task-form').style.display = 'block';
+  document.getElementById('auto-task-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeAutoTaskForm() {
+  document.getElementById('auto-task-form').style.display = 'none';
+  _editingTemplateId = null;
+}
+
+async function saveAutoTaskTemplate() {
+  const title       = document.getElementById('atf-title').value.trim();
+  const description = document.getElementById('atf-desc').value.trim();
+  const priority    = document.getElementById('atf-priority').value;
+  const frequency   = document.getElementById('atf-frequency').value;
+  const target_type = document.getElementById('atf-target-type').value;
+  const target_id   = document.getElementById('atf-target-id').value;
+  const due_time    = document.getElementById('atf-due-time').value;
+  const active      = document.getElementById('atf-active').checked;
+
+  if (!title)     { showToast('⚠ Title is required'); return; }
+  if (!target_id) { showToast('⚠ Please select a target team or user'); return; }
+
+  const payload = { title, description, priority, frequency, target_type, target_id, due_time, active };
+  const btn = document.querySelector('#auto-task-form .btn-gold');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  try {
+    let res;
+    if (_editingTemplateId) {
+      res = await api('PUT', `/task-templates/${_editingTemplateId}`, payload);
+      if (res?.success) {
+        const idx = AUTO_TASK_TEMPLATES.findIndex(t => t.id === _editingTemplateId);
+        if (idx !== -1) AUTO_TASK_TEMPLATES[idx] = res.template;
+        showToast('✅ Template updated');
+      }
+    } else {
+      res = await api('POST', '/task-templates', payload);
+      if (res?.success) {
+        AUTO_TASK_TEMPLATES.unshift(res.template);
+        showToast('✅ Template created');
+      }
+    }
+    if (!res || res.__error || res.error) {
+      showToast('❌ ' + (res?.message || res?.error || 'Failed'));
+      return;
+    }
+    closeAutoTaskForm();
+    _buildAutoTasksUI(document.getElementById('panel-autotasks'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Template'; }
+  }
+}
+
+async function toggleAutoTaskTemplate(id) {
+  const res = await api('PATCH', `/task-templates/${id}/toggle`);
+  if (res?.success) {
+    const tpl = AUTO_TASK_TEMPLATES.find(t => t.id === id);
+    if (tpl) { tpl.active = res.active; }
+    showToast(res.active ? '▶ Template resumed' : '⏸ Template paused');
+    _buildAutoTasksUI(document.getElementById('panel-autotasks'));
+  }
+}
+
+async function deleteAutoTaskTemplate(id) {
+  const tpl = AUTO_TASK_TEMPLATES.find(t => t.id === id);
+  if (!tpl) return;
+  if (!confirm(`Delete template "${tpl.title}"? This cannot be undone.`)) return;
+  const res = await api('DELETE', `/task-templates/${id}`);
+  if (res?.success) {
+    AUTO_TASK_TEMPLATES = AUTO_TASK_TEMPLATES.filter(t => t.id !== id);
+    showToast('🗑 Template deleted');
+    _buildAutoTasksUI(document.getElementById('panel-autotasks'));
+  }
+}
+
+async function dispatchSingleTemplate(id) {
+  const tpl = AUTO_TASK_TEMPLATES.find(t => t.id === id);
+  if (!tpl) return;
+  if (!confirm(`Dispatch "${tpl.title}" now?\n\nThis will create tasks for all target users immediately (deduplication prevents duplicates if already run today).`)) return;
+  showToast('⏳ Dispatching…');
+  // Backend dispatch endpoint — if not present, use the run-now workaround
+  const res = await api('POST', `/task-templates/${id}/dispatch`);
+  if (res?.success) {
+    showToast(`✅ Dispatched! ${res.created || 0} task(s) created.`);
+    await loadTasks();
+    renderDashboard();
+    renderMyTasks();
+  } else {
+    // Fallback: no dispatch endpoint yet — inform user
+    showToast(res?.error || '⚠ Dispatch not available — tasks will run at 12:02 AM automatically.');
+  }
+}
+
+// Called from edit form when editing an existing template
+async function dispatchTemplateNow() {
+  if (_editingTemplateId) await dispatchSingleTemplate(_editingTemplateId);
+}
+
 // Pre-load immediately so it's ready when user clicks Upload
 ensureXLSX().catch(() => {});
 </script>
