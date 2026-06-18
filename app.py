@@ -267,6 +267,21 @@ class DashboardGoal(db.Model):
     key   = db.Column(db.String(100), primary_key=True)
     value = db.Column(db.String(100), nullable=False, default="0")
 
+class TaskTemplate(db.Model):
+    __tablename__ = "task_templates"
+    id          = db.Column(db.Integer, primary_key=True)
+    title       = db.Column(db.String(300), nullable=False)
+    description = db.Column(db.Text)
+    priority    = db.Column(db.String(50), default="medium")
+    frequency   = db.Column(db.String(20), nullable=False)   # daily | weekly | monthly
+    target_type = db.Column(db.String(10), nullable=False)   # team | user
+    target_id   = db.Column(db.String(100), nullable=False)  # team id or user id
+    due_time    = db.Column(db.String(10))                   # HH:MM  (optional display)
+    active      = db.Column(db.Boolean, default=True)
+    created_by  = db.Column(db.String(100))
+    created_at  = db.Column(db.String(100))
+    last_run    = db.Column(db.String(20))                   # YYYY-MM-DD last dispatch
+
 
 # ─────────────────────────────────────────────
 # HELPERS
@@ -325,6 +340,7 @@ with app.app_context():
             "ALTER TABLE quote_delivery_log ADD COLUMN provider_response TEXT",
             # NEW: active/disabled flag for users (controls WhatsApp quote delivery)
             "ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE",
+            "ALTER TABLE task_templates ADD COLUMN due_time VARCHAR(10)",
         ]
         for sql in migrations:
             try:
@@ -1860,6 +1876,267 @@ def _load_goals_dict():
             result[k] = int(GOAL_DEFAULTS.get(k, "0"))
     return result
 
+# ─────────────────────────────────────────────
+# TASK TEMPLATES
+# ─────────────────────────────────────────────
+
+def template_to_dict(t):
+    return {
+        "id":          t.id,
+        "title":       t.title,
+        "description": t.description,
+        "priority":    t.priority,
+        "frequency":   t.frequency,
+        "target_type": t.target_type,
+        "target_id":   t.target_id,
+        "due_time":    t.due_time,
+        "active":      t.active,
+        "created_by":  t.created_by,
+        "created_at":  t.created_at,
+        "last_run":    t.last_run,
+    }
+
+
+@app.route("/api/task-templates", methods=["GET"])
+@jwt_required()
+def get_task_templates():
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    templates = TaskTemplate.query.order_by(TaskTemplate.id.desc()).all()
+    return jsonify([template_to_dict(t) for t in templates])
+
+
+@app.route("/api/task-templates", methods=["POST"])
+@jwt_required()
+def create_task_template():
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json() or {}
+    title       = (data.get("title") or "").strip()
+    frequency   = (data.get("frequency") or "").strip().lower()
+    target_type = (data.get("target_type") or "").strip().lower()
+    target_id   = (data.get("target_id") or "").strip()
+    if not title:
+        return jsonify({"error": "Title is required"}), 400
+    if frequency not in ("daily", "weekly", "monthly"):
+        return jsonify({"error": "Frequency must be daily, weekly, or monthly"}), 400
+    if target_type not in ("team", "user"):
+        return jsonify({"error": "target_type must be 'team' or 'user'"}), 400
+    if not target_id:
+        return jsonify({"error": "target_id is required"}), 400
+    tpl = TaskTemplate(
+        title       = title,
+        description = (data.get("description") or "").strip(),
+        priority    = data.get("priority", "medium"),
+        frequency   = frequency,
+        target_type = target_type,
+        target_id   = target_id,
+        due_time    = (data.get("due_time") or "").strip() or None,
+        active      = bool(data.get("active", True)),
+        created_by  = caller.id,
+        created_at  = now_ist().strftime("%b %d, %Y %I:%M %p"),
+        last_run    = None,
+    )
+    db.session.add(tpl)
+    db.session.commit()
+    return jsonify({"success": True, "template": template_to_dict(tpl)})
+
+
+@app.route("/api/task-templates/<int:tid>", methods=["PUT"])
+@jwt_required()
+def update_task_template(tid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    tpl = db.session.get(TaskTemplate, tid)
+    if not tpl:
+        return jsonify({"error": "Template not found"}), 404
+    data = request.get_json() or {}
+    if "title"       in data: tpl.title       = (data["title"] or "").strip() or tpl.title
+    if "description" in data: tpl.description = (data["description"] or "").strip()
+    if "priority"    in data: tpl.priority    = data["priority"] or tpl.priority
+    if "due_time"    in data: tpl.due_time    = (data["due_time"] or "").strip() or None
+    if "target_type" in data:
+        tt = (data["target_type"] or "").strip().lower()
+        if tt in ("team", "user"): tpl.target_type = tt
+    if "target_id"   in data: tpl.target_id   = (data["target_id"] or "").strip() or tpl.target_id
+    if "frequency"   in data:
+        freq = (data["frequency"] or "").strip().lower()
+        if freq in ("daily", "weekly", "monthly"): tpl.frequency = freq
+    if "active"      in data: tpl.active      = bool(data["active"])
+    db.session.commit()
+    return jsonify({"success": True, "template": template_to_dict(tpl)})
+
+
+@app.route("/api/task-templates/<int:tid>", methods=["DELETE"])
+@jwt_required()
+def delete_task_template(tid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    tpl = db.session.get(TaskTemplate, tid)
+    if not tpl:
+        return jsonify({"error": "Not found"}), 404
+    db.session.delete(tpl)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/task-templates/<int:tid>/toggle", methods=["PATCH"])
+@jwt_required()
+def toggle_task_template(tid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    tpl = db.session.get(TaskTemplate, tid)
+    if not tpl:
+        return jsonify({"error": "Not found"}), 404
+    tpl.active = not tpl.active
+    db.session.commit()
+    return jsonify({"success": True, "active": tpl.active})
+
+@app.route("/api/task-templates/<int:tid>/dispatch", methods=["POST"])
+@jwt_required()
+def dispatch_single_template(tid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    tpl = db.session.get(TaskTemplate, tid)
+    if not tpl:
+        return jsonify({"error": "Template not found"}), 404
+
+    today     = today_str()
+    now_iso_v = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+
+    if tpl.target_type == "user":
+        target_users = [u for u in User.query.all() if u.id == tpl.target_id]
+    else:
+        target_users = User.query.filter(
+            User.team == tpl.target_id,
+            User.role.notin_(["founder"])
+        ).all()
+        if not target_users and tpl.target_id == "founder_assistant":
+            target_users = User.query.filter_by(role="founder_assistant").all()
+
+    created_count = 0
+    for user in target_users:
+        dedup_key = f"auto_{tpl.id}_{user.id}_{today}"
+        if Task.query.filter_by(id=dedup_key).first():
+            continue
+        task = Task(
+            id         = dedup_key,
+            title      = tpl.title,
+            desc       = tpl.description or "",
+            assignedTo = user.id,
+            assignedBy = caller.id,
+            status     = "pending",
+            priority   = tpl.priority or "medium",
+            due        = today,
+            msg        = f"[Auto Task — {tpl.frequency.capitalize()}]",
+            createdAt  = now_iso_v,
+            work_completion_percentage = 0.0,
+        )
+        db.session.add(task)
+        make_notif(
+            userId = user.id,
+            ntype  = "task",
+            title  = "📋 Auto Task Assigned",
+            body   = f"Auto task: {tpl.title}"
+        )
+        created_count += 1
+
+    if created_count:
+        tpl.last_run = today
+
+    db.session.commit()
+    return jsonify({"success": True, "created": created_count})
+
+
+def dispatch_task_templates():
+    """
+    Called by the scheduler. Iterates all active templates and creates tasks
+    for eligible users based on frequency + dedup logic.
+    """
+    with app.app_context():
+        today     = today_str()
+        now_iso_v = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+        templates = TaskTemplate.query.filter_by(active=True).all()
+
+        for tpl in templates:
+            # ── Frequency gate ──────────────────────────────────────
+            if tpl.last_run == today:
+                continue  # already dispatched today
+
+            now_date = today_ist()
+            if tpl.frequency == "weekly" and tpl.last_run:
+                try:
+                    lr = datetime.datetime.strptime(tpl.last_run, "%Y-%m-%d").date()
+                    if (now_date - lr).days < 7:
+                        continue
+                except ValueError:
+                    pass
+            elif tpl.frequency == "monthly" and tpl.last_run:
+                try:
+                    lr = datetime.datetime.strptime(tpl.last_run, "%Y-%m-%d").date()
+                    if (now_date - lr).days < 28:
+                        continue
+                except ValueError:
+                    pass
+
+            # ── Resolve target users ────────────────────────────────
+            if tpl.target_type == "user":
+                target_users = [u for u in User.query.all() if u.id == tpl.target_id]
+            else:
+                # team match OR founder_assistant role for that pseudo-team
+                target_users = User.query.filter(
+                    User.team == tpl.target_id,
+                    User.role.notin_(["founder"])
+                ).all()
+                if not target_users and tpl.target_id == "founder_assistant":
+                    target_users = User.query.filter_by(role="founder_assistant").all()
+
+            created_count = 0
+            for user in target_users:
+                # ── Dedup: same template + same user + today ────────
+                dedup_key = f"auto_{tpl.id}_{user.id}_{today}"
+                exists = Task.query.filter_by(id=dedup_key).first()
+                if exists:
+                    continue
+
+                task = Task(
+                    id         = dedup_key,
+                    title      = tpl.title,
+                    desc       = tpl.description or "",
+                    assignedTo = user.id,
+                    assignedBy = tpl.created_by or "system",
+                    status     = "pending",
+                    priority   = tpl.priority or "medium",
+                    due        = today,
+                    msg        = f"[Auto Task — {tpl.frequency.capitalize()}]",
+                    createdAt  = now_iso_v,
+                    work_completion_percentage = 0.0,
+                )
+                db.session.add(task)
+                make_notif(
+                    userId = user.id,
+                    ntype  = "task",
+                    title  = "📋 Auto Task Assigned",
+                    body   = f"Auto task: {tpl.title}"
+                )
+                created_count += 1
+
+            if created_count:
+                tpl.last_run = today
+                print(f"[AUTO TASK] Template '{tpl.title}' → {created_count} task(s) created for {today}")
+
+        try:
+            db.session.commit()
+        except Exception as exc:
+            db.session.rollback()
+            print(f"[AUTO TASK] Commit error: {exc}")
+
 
 @app.route("/api/dashboard/goals", methods=["GET"])
 @jwt_required()
@@ -2967,10 +3244,22 @@ if APSCHEDULER_AVAILABLE:
         misfire_grace_time=3600
     )
 
+    # Auto Task Templates dispatcher — 12:02 AM IST daily
+    _scheduler.add_job(
+        dispatch_task_templates,
+        trigger="cron",
+        hour=0,
+        minute=2,
+        id="auto_task_templates_job",
+        replace_existing=True,
+        misfire_grace_time=3600
+    )
+
     _scheduler.start()
     print("[SCHEDULER] Auto daily quote: 12:00 AM IST (midnight) + 7:00 AM IST")
     print("[SCHEDULER] Birthday alerts:  08:00 AM IST")
     print("[SCHEDULER] Daily task assign: 12:01 AM IST")
+    print("[SCHEDULER] Auto task templates: 12:02 AM IST")
 
     # ── Restart recovery ────────────────────────────────────────
     # If the app restarts after midnight and the cron fire was missed
