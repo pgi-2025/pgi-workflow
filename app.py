@@ -165,9 +165,16 @@ class Attendance(db.Model):
     userId        = db.Column(db.String(100), nullable=False)
     status        = db.Column(db.String(50),  nullable=False)
     date          = db.Column(db.String(20),  nullable=False)
-    # NEW: exact timestamp when attendance was last toggled
+    # exact timestamp when attendance was last toggled
     checkin_time  = db.Column(db.String(30))   # ISO datetime string e.g. "2026-06-16T09:14:32"
     checkout_time = db.Column(db.String(30))   # set when toggled absent after being present
+    worked_hours  = db.Column(db.Float)        # hours between checkin_time and checkout_time
+    # GEO TAGGING — check-in location
+    checkin_latitude  = db.Column(db.Float)
+    checkin_longitude = db.Column(db.Float)
+    # GEO TAGGING — check-out location
+    checkout_latitude  = db.Column(db.Float)
+    checkout_longitude = db.Column(db.Float)
 
 
 class MorningMessage(db.Model):
@@ -274,8 +281,8 @@ class TaskTemplate(db.Model):
     description = db.Column(db.Text)
     priority    = db.Column(db.String(50), default="medium")
     frequency   = db.Column(db.String(20), nullable=False)   # daily | weekly | monthly
-    target_type = db.Column(db.String(10), nullable=False)   # team | user
-    target_id   = db.Column(db.String(100), nullable=False)  # team id or user id
+    target_type = db.Column(db.String(10), nullable=False)   # team | user | all
+    target_id   = db.Column(db.String(100), nullable=True)   # team id or user id (not required for "all")
     due_time    = db.Column(db.String(10))                   # HH:MM  (optional display)
     active      = db.Column(db.Boolean, default=True)
     created_by  = db.Column(db.String(100))
@@ -334,6 +341,8 @@ with app.app_context():
             # NEW: attendance timestamp columns
             "ALTER TABLE attendance       ADD COLUMN checkin_time  VARCHAR(30)",
             "ALTER TABLE attendance       ADD COLUMN checkout_time VARCHAR(30)",
+            # NEW: worked hours (decimal), computed on check-out
+            "ALTER TABLE attendance       ADD COLUMN worked_hours FLOAT",
             # NEW: WhatsApp delivery audit trail
             "ALTER TABLE quote_delivery_log ADD COLUMN error_message TEXT",
             "ALTER TABLE quote_delivery_log ADD COLUMN phone VARCHAR(30)",
@@ -341,6 +350,11 @@ with app.app_context():
             # NEW: active/disabled flag for users (controls WhatsApp quote delivery)
             "ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE",
             "ALTER TABLE task_templates ADD COLUMN due_time VARCHAR(10)",
+            # GEO TAGGING — check-in / check-out coordinates
+            "ALTER TABLE attendance ADD COLUMN checkin_latitude  FLOAT",
+            "ALTER TABLE attendance ADD COLUMN checkin_longitude FLOAT",
+            "ALTER TABLE attendance ADD COLUMN checkout_latitude  FLOAT",
+            "ALTER TABLE attendance ADD COLUMN checkout_longitude FLOAT",
         ]
         for sql in migrations:
             try:
@@ -1310,11 +1324,16 @@ def reset_ratings():
 def attendance_to_dict(att_row, user_obj=None):
     """Serialize an Attendance row, enriching with user info if provided."""
     d = {
-        "userId":        att_row.userId,
-        "status":        att_row.status,
-        "date":          att_row.date,
-        "checkin_time":  att_row.checkin_time  or "",
-        "checkout_time": att_row.checkout_time or "",
+        "userId":             att_row.userId,
+        "status":             att_row.status,
+        "date":               att_row.date,
+        "checkin_time":       att_row.checkin_time  or "",
+        "checkout_time":      att_row.checkout_time or "",
+        "worked_hours":       att_row.worked_hours,
+        "checkin_latitude":   att_row.checkin_latitude,
+        "checkin_longitude":  att_row.checkin_longitude,
+        "checkout_latitude":  att_row.checkout_latitude,
+        "checkout_longitude": att_row.checkout_longitude,
     }
     if user_obj:
         d.update({
@@ -1338,16 +1357,21 @@ def get_attendance():
     for u in users:
         att = records.get(u.id)
         result.append({
-            "userId":        u.id,
-            "name":          u.name,
-            "initials":      u.initials,
-            "role":          u.role,
-            "team":          u.team,
-            "profile_photo": u.profile_photo,
-            "status":        att.status        if att else "absent",
-            "date":          today,
-            "checkin_time":  att.checkin_time  if att else "",
-            "checkout_time": att.checkout_time if att else "",
+            "userId":             u.id,
+            "name":               u.name,
+            "initials":           u.initials,
+            "role":               u.role,
+            "team":               u.team,
+            "profile_photo":      u.profile_photo,
+            "status":             att.status             if att else "absent",
+            "date":               today,
+            "checkin_time":       att.checkin_time       if att else "",
+            "checkout_time":      att.checkout_time      if att else "",
+            "worked_hours":       att.worked_hours       if att else None,
+            "checkin_latitude":   att.checkin_latitude   if att else None,
+            "checkin_longitude":  att.checkin_longitude  if att else None,
+            "checkout_latitude":  att.checkout_latitude  if att else None,
+            "checkout_longitude": att.checkout_longitude if att else None,
         })
     return jsonify(result)
 
@@ -1388,7 +1412,165 @@ def mark_attendance():
         "date":          today,
         "checkin_time":  att.checkin_time  or "",
         "checkout_time": att.checkout_time or "",
+        "worked_hours":  att.worked_hours,
     })
+
+
+def _compute_worked_hours(checkin_iso, checkout_iso):
+    """Return hours (float, 2dp) between two ISO datetime strings, or None."""
+    try:
+        ci = datetime.datetime.fromisoformat(checkin_iso)
+        co = datetime.datetime.fromisoformat(checkout_iso)
+        return round((co - ci).total_seconds() / 3600.0, 2)
+    except (ValueError, TypeError):
+        return None
+
+
+@app.route("/api/attendance/checkin", methods=["POST"])
+@jwt_required()
+def checkin_attendance():
+    """
+    Explicit Check-In action.
+    - Enabled once per day: if a check-in already exists for today, reject.
+    - Sets status -> 'present', records checkin_time and optional geo coords.
+    """
+    data  = request.get_json() or {}
+    uid   = data.get("userId") or get_jwt_identity()
+    today = today_str()
+    now_ts = now_iso()
+
+    # Parse optional geo coords — float or None
+    def _parse_coord(val):
+        try:
+            return float(val) if val is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    lat = _parse_coord(data.get("latitude"))
+    lng = _parse_coord(data.get("longitude"))
+
+    att = Attendance.query.filter_by(userId=uid, date=today).first()
+    if att and att.checkin_time:
+        return jsonify({"error": "Already checked in today"}), 400
+
+    if att:
+        att.status              = "present"
+        att.checkin_time        = now_ts
+        att.checkout_time       = None
+        att.worked_hours        = None
+        att.checkin_latitude    = lat
+        att.checkin_longitude   = lng
+        att.checkout_latitude   = None
+        att.checkout_longitude  = None
+    else:
+        att = Attendance(
+            userId=uid, status="present", date=today,
+            checkin_time=now_ts, checkout_time=None, worked_hours=None,
+            checkin_latitude=lat, checkin_longitude=lng,
+            checkout_latitude=None, checkout_longitude=None
+        )
+        db.session.add(att)
+
+    db.session.commit()
+    return jsonify({
+        "success":            True,
+        "status":             att.status,
+        "date":               today,
+        "checkin_time":       att.checkin_time  or "",
+        "checkout_time":      att.checkout_time or "",
+        "worked_hours":       att.worked_hours,
+        "checkin_latitude":   att.checkin_latitude,
+        "checkin_longitude":  att.checkin_longitude,
+    })
+
+
+@app.route("/api/attendance/checkout", methods=["POST"])
+@jwt_required()
+def checkout_attendance():
+    """
+    Explicit Check-Out action.
+    - Enabled only after check-in: requires an existing checkin_time today.
+    - Does NOT overwrite checkin_time.
+    - Records checkout_time, geo coords, computes worked_hours, status -> 'completed'.
+    """
+    data  = request.get_json() or {}
+    uid   = data.get("userId") or get_jwt_identity()
+    today = today_str()
+    now_ts = now_iso()
+
+    def _parse_coord(val):
+        try:
+            return float(val) if val is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    lat = _parse_coord(data.get("latitude"))
+    lng = _parse_coord(data.get("longitude"))
+
+    att = Attendance.query.filter_by(userId=uid, date=today).first()
+    if not att or not att.checkin_time:
+        return jsonify({"error": "You must check in before checking out"}), 400
+    if att.checkout_time:
+        return jsonify({"error": "Already checked out today"}), 400
+
+    att.checkout_time      = now_ts
+    att.worked_hours       = _compute_worked_hours(att.checkin_time, att.checkout_time)
+    att.status             = "completed"
+    att.checkout_latitude  = lat
+    att.checkout_longitude = lng
+
+    db.session.commit()
+    return jsonify({
+        "success":             True,
+        "status":              att.status,
+        "date":                today,
+        "checkin_time":        att.checkin_time  or "",
+        "checkout_time":       att.checkout_time or "",
+        "worked_hours":        att.worked_hours,
+        "checkin_latitude":    att.checkin_latitude,
+        "checkin_longitude":   att.checkin_longitude,
+        "checkout_latitude":   att.checkout_latitude,
+        "checkout_longitude":  att.checkout_longitude,
+    })
+
+
+@app.route("/api/attendance/map")
+@jwt_required()
+def attendance_map():
+    """
+    Founder-only: return today's checked-in employees with their geo coordinates.
+    Only includes employees who have a checkin_latitude/longitude recorded.
+    """
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+
+    today   = today_str()
+    records = Attendance.query.filter_by(date=today).all()
+
+    result = []
+    for a in records:
+        if a.checkin_latitude is None or a.checkin_longitude is None:
+            continue
+        user = db.session.get(User, a.userId)
+        if not user:
+            continue
+        result.append({
+            "userId":             a.userId,
+            "name":               user.name,
+            "initials":           user.initials,
+            "role":               user.role,
+            "team":               user.team,
+            "profile_photo":      user.profile_photo,
+            "status":             a.status,
+            "checkin_time":       a.checkin_time  or "",
+            "checkout_time":      a.checkout_time or "",
+            "checkin_latitude":   a.checkin_latitude,
+            "checkin_longitude":  a.checkin_longitude,
+            "checkout_latitude":  a.checkout_latitude,
+            "checkout_longitude": a.checkout_longitude,
+        })
+    return jsonify(result)
 
 
 @app.route("/api/attendance/history")
@@ -1399,11 +1581,16 @@ def attendance_history():
         return jsonify({"error": "Forbidden"}), 403
     records = Attendance.query.all()
     return jsonify([{
-        "userId":        a.userId,
-        "status":        a.status,
-        "date":          a.date,
-        "checkin_time":  a.checkin_time  or "",
-        "checkout_time": a.checkout_time or "",
+        "userId":             a.userId,
+        "status":             a.status,
+        "date":               a.date,
+        "checkin_time":       a.checkin_time  or "",
+        "checkout_time":      a.checkout_time or "",
+        "worked_hours":       a.worked_hours,
+        "checkin_latitude":   a.checkin_latitude,
+        "checkin_longitude":  a.checkin_longitude,
+        "checkout_latitude":  a.checkout_latitude,
+        "checkout_longitude": a.checkout_longitude,
     } for a in records])
 
 
@@ -1922,9 +2109,9 @@ def create_task_template():
         return jsonify({"error": "Title is required"}), 400
     if frequency not in ("daily", "weekly", "monthly"):
         return jsonify({"error": "Frequency must be daily, weekly, or monthly"}), 400
-    if target_type not in ("team", "user"):
-        return jsonify({"error": "target_type must be 'team' or 'user'"}), 400
-    if not target_id:
+    if target_type not in ("team", "user", "all"):
+        return jsonify({"error": "target_type must be 'team', 'user', or 'all'"}), 400
+    if target_type in ("team", "user") and not target_id:
         return jsonify({"error": "target_id is required"}), 400
     tpl = TaskTemplate(
         title       = title,
@@ -1932,7 +2119,7 @@ def create_task_template():
         priority    = data.get("priority", "medium"),
         frequency   = frequency,
         target_type = target_type,
-        target_id   = target_id,
+        target_id   = target_id if target_type != "all" else None,
         due_time    = (data.get("due_time") or "").strip() or None,
         active      = bool(data.get("active", True)),
         created_by  = caller.id,
@@ -1960,8 +2147,11 @@ def update_task_template(tid):
     if "due_time"    in data: tpl.due_time    = (data["due_time"] or "").strip() or None
     if "target_type" in data:
         tt = (data["target_type"] or "").strip().lower()
-        if tt in ("team", "user"): tpl.target_type = tt
+        if tt in ("team", "user", "all"):
+            tpl.target_type = tt
     if "target_id"   in data: tpl.target_id   = (data["target_id"] or "").strip() or tpl.target_id
+    if tpl.target_type == "all":
+        tpl.target_id = None
     if "frequency"   in data:
         freq = (data["frequency"] or "").strip().lower()
         if freq in ("daily", "weekly", "monthly"): tpl.frequency = freq
@@ -1997,6 +2187,31 @@ def toggle_task_template(tid):
     db.session.commit()
     return jsonify({"success": True, "active": tpl.active})
 
+def resolve_template_target_users(tpl):
+    """
+    Resolve the list of User objects a TaskTemplate should dispatch to,
+    based on its target_type ('team' | 'user' | 'all').
+    """
+    if tpl.target_type == "user":
+        return [u for u in User.query.all() if u.id == tpl.target_id]
+    elif tpl.target_type == "all":
+        # All active users across every role (Founder Assistant, Employees,
+        # Interns, Trainers, and any future roles), excluding the Founder.
+        return User.query.filter(
+            User.active == True,
+            User.role.notin_(["founder"])
+        ).all()
+    else:
+        # team match OR founder_assistant role for that pseudo-team
+        target_users = User.query.filter(
+            User.team == tpl.target_id,
+            User.role.notin_(["founder"])
+        ).all()
+        if not target_users and tpl.target_id == "founder_assistant":
+            target_users = User.query.filter_by(role="founder_assistant").all()
+        return target_users
+
+
 @app.route("/api/task-templates/<int:tid>/dispatch", methods=["POST"])
 @jwt_required()
 def dispatch_single_template(tid):
@@ -2010,15 +2225,7 @@ def dispatch_single_template(tid):
     today     = today_str()
     now_iso_v = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
 
-    if tpl.target_type == "user":
-        target_users = [u for u in User.query.all() if u.id == tpl.target_id]
-    else:
-        target_users = User.query.filter(
-            User.team == tpl.target_id,
-            User.role.notin_(["founder"])
-        ).all()
-        if not target_users and tpl.target_id == "founder_assistant":
-            target_users = User.query.filter_by(role="founder_assistant").all()
+    target_users = resolve_template_target_users(tpl)
 
     created_count = 0
     for user in target_users:
@@ -2086,16 +2293,7 @@ def dispatch_task_templates():
                     pass
 
             # ── Resolve target users ────────────────────────────────
-            if tpl.target_type == "user":
-                target_users = [u for u in User.query.all() if u.id == tpl.target_id]
-            else:
-                # team match OR founder_assistant role for that pseudo-team
-                target_users = User.query.filter(
-                    User.team == tpl.target_id,
-                    User.role.notin_(["founder"])
-                ).all()
-                if not target_users and tpl.target_id == "founder_assistant":
-                    target_users = User.query.filter_by(role="founder_assistant").all()
+            target_users = resolve_template_target_users(tpl)
 
             created_count = 0
             for user in target_users:
