@@ -1720,7 +1720,7 @@ function taskCardHTML(t) {
 
   let actions = '';
 
-  if (!isFounder && isMyTask) {
+if (isMyTask) {
     if (t.task_type === 'google_form') {
       if (t.status === 'pending' || t.status === 'inprogress' || t.status === 'rejected') {
         actions = `<button class="btn-tiny form-btn" onclick="openGoogleForm('${t.id}')">📋 Open Form & Submit</button>`;
@@ -1757,7 +1757,7 @@ function taskCardHTML(t) {
     }
   }
 
-  if (isFounder && t.status === 'submitted')
+  if (isFounder && t.status === 'submitted' && !isMyTask)
     actions = `<button class="btn-tiny confirm" onclick="verifyTask('${t.id}','approve')">✓ Complete</button><button class="btn-tiny reject" onclick="openRejectModal('${t.id}')">✕ Reject</button>`;
 
   // Work completion percentage bar (always visible)
@@ -2048,9 +2048,19 @@ function openKanbanDetail(tid) {
   document.getElementById('td-title').textContent = t.title;
   const aColor = ac(t.assignedTo);
   let actionsHTML = '';
-  if (t.status==='submitted') {
-    const isF = isFounderLike(currentUser);
-    const canDel = isF || (t.assignedTo === currentUser?.id);
+  const isMine = t.assignedTo === currentUser?.id;
+  if (isMine && (t.status === 'pending' || t.status === 'inprogress' || t.status === 'rejected')) {
+    if (t.task_type === 'google_form') {
+      actionsHTML = `<button class="btn-sm btn-gold" onclick="closeTaskDetail();openGoogleForm('${t.id}')">📋 Open Form & Submit</button>`;
+    } else if (t.task_type === 'manual') {
+      actionsHTML = `<button class="btn-sm btn-gold" onclick="markManualDone('${t.id}');closeTaskDetail()">✅ Mark Done</button>`;
+    } else {
+      actionsHTML = t.status === 'pending'
+        ? `<button class="btn-sm btn-outline" onclick="markProgress('${t.id}');closeTaskDetail()">▶ Start</button><button class="btn-sm btn-gold" onclick="closeTaskDetail();openProofModal('${t.id}')">📎 Submit Proof</button>`
+        : `<button class="btn-sm btn-gold" onclick="closeTaskDetail();openProofModal('${t.id}')">📎 ${t.status==='rejected'?'Resubmit':'Submit'} Proof</button>`;
+    }
+  } else if (t.status==='submitted' && !isMine) {
+    const canDel = isFounderLike(currentUser);
     actionsHTML = `<button class="btn-sm btn-gold" onclick="verifyTask('${t.id}','approve');closeTaskDetail()">✓ Mark Complete</button><button class="btn-sm btn-outline" onclick="closeTaskDetail();openRejectModal('${t.id}')">✕ Reject</button>${canDel ? `<button class="btn-sm" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);color:#F87171" onclick="closeTaskDetail();openDeleteProofModal('${t.id}')">🗑 Delete Proof</button>` : ''}`;
   }
   document.getElementById('td-content').innerHTML = `
@@ -2367,28 +2377,6 @@ function renderMyTasks() {
 // ATTENDANCE
 // ═══════════════════════════════════════════════════════════
 
-// Classify a single day's attendance cell for a user.
-// Returns the number of working days (Mon–Sat, excluding Sundays and given holiday dates)
-// between startDateStr and today (both inclusive). startDateStr is 'YYYY-MM-DD'.
-// holidays: optional Array/Set of 'YYYY-MM-DD' strings to exclude.
-function workingDaysBetween(startDateStr, holidays) {
-  if (!startDateStr) return 0;
-  const holidaySet = holidays instanceof Set ? holidays : new Set(holidays || []);
-  const today = new Date().toISOString().split('T')[0];
-  if (startDateStr > today) return 0;
-
-  let count = 0;
-  const cur  = new Date(startDateStr + 'T00:00:00');
-  const last = new Date(today + 'T00:00:00');
-  while (cur <= last) {
-    const dow     = cur.getDay();                        // 0 = Sunday
-    const dateStr = cur.toISOString().split('T')[0];
-    if (dow !== 0 && !holidaySet.has(dateStr)) count++; // Mon–Sat, not a holiday
-    cur.setDate(cur.getDate() + 1);
-  }
-  return count;
-}
-
 //  - explicit 'present' / 'absent' status  -> 'P' / 'A'
 //  - no record on a future date            -> '-'  (nothing to mark yet)
 //  - no record on a weekend (Sat/Sun)      -> '-'  (non-working day)
@@ -2434,24 +2422,33 @@ async function renderAttendance() {
       </div>
       <div class="divider"></div>` : '';
 
-    const hist = await api('GET', '/attendance/history') || [];
+    const [hist, pctStats] = await Promise.all([
+      api('GET', '/attendance/history'),
+      api('GET', '/attendance/percentage'),
+    ]);
+
+    const statsByUser = {};
+    (pctStats || []).forEach(s => { statsByUser[s.userId] = s; });
 
     const userDates = {};
-    hist.forEach(r => {
+    (hist || []).forEach(r => {
       if (!userDates[r.userId]) userDates[r.userId] = {};
       userDates[r.userId][r.date] = r.status;
     });
-    const allDates  = [...new Set(hist.map(r => r.date))].sort();
+    const allDates  = [...new Set((hist || []).map(r => r.date))].sort();
     const totalDays = allDates.length;
 
+    // Present / Absent / Rate below all come from the same shared backend
+    // calculation (calculate_attendance_percentage): floored at
+    // ATTENDANCE_START_DATE (Jun 1, 2026) or the employee's joining date —
+    // whichever is later — and excluding Sundays, holidays, and future dates.
     const memberStats = all.map(u => {
-      const days    = userDates[u.id] || {};
-      const results = allDates.map(d => classifyAttendanceCell(d, days[d]));
-      const present = results.filter(r => r === 'P').length;
-      const absent  = results.filter(r => r === 'A').length;
-      const workingDays = workingDaysBetween(u.joining_date);
-      const pct     = workingDays > 0 ? parseFloat(((present / workingDays) * 100).toFixed(2)) : 0;
-      return { u, present, absent, pct, days };
+      const days  = userDates[u.id] || {};
+      const stats = statsByUser[u.id] || { percentage: 0, present_days: 0, total_working_days: 0, calculation_start_date: null };
+      const present = stats.present_days;
+      const absent  = Math.max(stats.total_working_days - stats.present_days, 0);
+      const pct     = stats.percentage;
+      return { u, present, absent, pct, days, stats };
     }).sort((a, b) => b.pct - a.pct);
 
     const avgPct      = memberStats.length ? parseFloat((memberStats.reduce((s, m) => s + m.pct, 0) / memberStats.length).toFixed(2)) : 0;
@@ -2538,6 +2535,9 @@ async function renderAttendance() {
             <div style="font-size:12px;color:var(--text3);margin-top:3px">
               ${totalDays > 0 ? `${totalDays} day${totalDays !== 1 ? 's' : ''} tracked · ${allDates[0] ? fmtDate(allDates[0]) : ''} → ${allDates[allDates.length-1] ? fmtDate(allDates[allDates.length-1]) : ''}` : 'No data yet'}
             </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px;opacity:0.8">
+              Present / Absent / Rate are calculated from Jun 1, 2026 or each member's joining date (whichever is later) to today, excluding Sundays, holidays, and future dates.
+            </div>
           </div>
           ${totalDays > 0 ? `<button class="btn-sm btn-outline" onclick="exportAttendanceCSV()" style="font-size:12px;padding:7px 14px;color:var(--gold2);border-color:var(--gold3)">⬇ Export CSV</button>` : ''}
         </div>
@@ -2586,6 +2586,12 @@ async function renderAttendance() {
     const statusColor2 = st === 'completed' ? 'var(--green)' : st === 'present' ? 'var(--green)' : 'var(--red)';
     const statusText2  = st === 'completed' ? 'You have completed attendance for today' : st === 'present' ? 'You are checked in — don\'t forget to check out' : 'You have not checked in today';
     const statusSub2   = st === 'completed' ? 'Check-in and check-out both recorded' : st === 'present' ? 'Click Check Out when you finish for the day' : 'Click Check In to mark your arrival';
+
+    const myStatsArr = await api('GET', '/attendance/percentage') || [];
+    const myStats = myStatsArr[0] || { percentage: 0, present_days: 0, total_working_days: 0, calculation_start_date: null };
+    const myPctColor = myStats.percentage >= 90 ? 'var(--green)' : myStats.percentage >= 70 ? '#FBBF24' : myStats.percentage >= 50 ? '#FB923C' : 'var(--red)';
+    const myStartLabel = myStats.calculation_start_date ? new Date(myStats.calculation_start_date + 'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '--';
+
     view.innerHTML = `<div style="max-width:480px">
       <div style="margin-bottom:24px">
         <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">Mark Your Attendance</div>
@@ -2605,127 +2611,18 @@ async function renderAttendance() {
           ${attObj2.worked_hours != null ? `<div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Worked Hours</div><div style="font-size:13px;font-weight:500;color:var(--gold2)">${attObj2.worked_hours}h</div></div>` : ''}
         </div>` : ''}
       </div>
+      <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Your Attendance</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:3px">${myStats.present_days}/${myStats.total_working_days} working days · since ${myStartLabel}</div>
+          </div>
+          <div style="font-size:28px;font-weight:700;color:${myPctColor}">${myStats.percentage}%</div>
+        </div>
+      </div>
     </div>`;
   }
   updateSidebarAttendance();
-}
-
-function renderAttendanceReport(hist, all) {
-  const section = document.getElementById('att-report-section');
-  if (!section) return;
-
-  if (!hist.length) {
-    section.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px;text-align:center;color:var(--text3);font-size:13px">
-      <div style="font-size:32px;margin-bottom:10px;opacity:0.35">📊</div>
-      <p>Cumulative report will appear here once attendance has been marked for at least one day.</p>
-    </div>`;
-    return;
-  }
-
-  const userDates  = {};
-  hist.forEach(r => {
-    if (!userDates[r.userId]) userDates[r.userId] = {};
-    userDates[r.userId][r.date] = r.status;
-  });
-
-  const allDates   = [...new Set(hist.map(r => r.date))].sort();
-  const totalDays  = allDates.length;
-
-  const memberStats = all.map(u => {
-    const days    = userDates[u.id] || {};
-    const results = allDates.map(d => classifyAttendanceCell(d, days[d]));
-    const present = results.filter(r => r === 'P').length;
-    const absent  = results.filter(r => r === 'A').length;
-    const workingDays = workingDaysBetween(u.joining_date);
-    const pct     = workingDays > 0 ? parseFloat(((present / workingDays) * 100).toFixed(2)) : 0;
-    return { u, present, absent, pct, days };
-  }).sort((a, b) => b.pct - a.pct);
-
-  const avgPct       = memberStats.length ? parseFloat((memberStats.reduce((s,m) => s + m.pct, 0) / memberStats.length).toFixed(2)) : 0;
-  const perfectCount = memberStats.filter(m => m.pct >= 100).length;
-  const atRisk       = memberStats.filter(m => m.pct < 50).length;
-
-  const barColor = pct => pct >= 90 ? '#22C55E' : pct >= 70 ? '#FBBF24' : pct >= 50 ? '#FB923C' : '#EF4444';
-  const txtColor = pct => pct >= 90 ? '#15803D' : pct >= 70 ? '#92400E' : pct >= 50 ? '#9A3412' : '#B91C1C';
-
-  const fmtDate = d => {
-    const [, m, day] = d.split('-');
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return months[parseInt(m,10)-1] + ' ' + parseInt(day,10);
-  };
-
-  const dateHeaders = allDates.map(d =>
-    `<th style="padding:8px 6px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);white-space:nowrap;border-bottom:1px solid var(--border)">${fmtDate(d)}</th>`
-  ).join('');
-
-  const memberRows = memberStats.map(({ u, present, absent, pct, days }) => {
-    const c = ac(u.id);
-    const dateCells = allDates.map(d => {
-      const cell = classifyAttendanceCell(d, days[d]);
-      if (cell === 'P') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
-      if (cell === 'A') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
-      return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:10px">—</span></td>`;
-    }).join('');
-
-    return `<tr>
-      <td style="padding:10px 8px 10px 18px;border-bottom:1px solid var(--border2);position:sticky;left:0;background:var(--surface);z-index:1;min-width:160px">
-        <div style="display:flex;align-items:center;gap:8px">
-          ${u.profile_photo ? `<img src="${u.profile_photo}" alt="${u.initials}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0">` : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:28px;height:28px;font-size:10px;flex-shrink:0">${u.initials}</div>`}
-          <div>
-            <div style="font-size:12px;font-weight:500;color:var(--text)">${u.name}</div>
-            <div style="font-size:10px;color:var(--text3);text-transform:capitalize">${u.role}${u.team ? ' · '+(TEAM_CONFIG.find(t=>t.id===u.team)?.name||u.team) : ''}</div>
-          </div>
-        </div>
-      </td>
-      ${dateCells}
-      <td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border2)"><span style="color:#15803D;font-weight:600;font-size:13px">${present}</span></td>
-      <td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border2)"><span style="color:#B91C1C;font-weight:600;font-size:13px">${absent}</span></td>
-      <td style="padding:6px 14px;border-bottom:1px solid var(--border2)">
-        <div style="display:flex;align-items:center;gap:6px">
-          <div style="width:48px;height:5px;background:var(--surface3);border-radius:3px;overflow:hidden;flex-shrink:0">
-            <div style="height:100%;width:${pct}%;background:${barColor(pct)};border-radius:3px"></div>
-          </div>
-          <span style="font-size:12px;font-weight:600;color:${txtColor(pct)};min-width:30px">${pct}%</span>
-        </div>
-      </td>
-    </tr>`;
-  }).join('');
-
-  section.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <div>
-          <div style="font-family:'DM Serif Display',serif;font-size:17px">Cumulative attendance report</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:3px">${totalDays} day${totalDays!==1?'s':''} tracked · ${fmtDate(allDates[0])} → ${fmtDate(allDates[allDates.length-1])}</div>
-        </div>
-        <button class="btn-sm btn-outline" onclick="exportAttendanceCSV()" style="font-size:12px;padding:7px 14px;color:var(--gold2);border-color:var(--gold3)">⬇ Export CSV</button>
-      </div>
-      <div class="att-summary-row" style="padding:14px 20px;margin-bottom:0;gap:8px">
-        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--green);font-size:22px">${avgPct}%</div><div class="att-sum-lbl">Avg rate</div></div>
-        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--blue);font-size:22px">${totalDays}</div><div class="att-sum-lbl">Days tracked</div></div>
-        <div class="att-sum-card"><div class="att-sum-num" style="font-size:22px">${perfectCount}</div><div class="att-sum-lbl">Perfect</div></div>
-        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--red);font-size:22px">${atRisk}</div><div class="att-sum-lbl">At risk</div></div>
-      </div>
-      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-        <table style="border-collapse:collapse;font-size:12px;min-width:100%">
-          <thead>
-            <tr style="border-bottom:1px solid var(--border)">
-              <th style="padding:9px 8px 9px 18px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;position:sticky;left:0;background:var(--surface);z-index:2;min-width:160px">Member</th>
-              ${dateHeaders}
-              <th style="padding:9px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Present</th>
-              <th style="padding:9px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Absent</th>
-              <th style="padding:9px 14px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;min-width:100px">Rate</th>
-            </tr>
-          </thead>
-          <tbody>${memberRows}</tbody>
-        </table>
-      </div>
-      <div style="display:flex;gap:16px;padding:10px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);align-items:center;flex-wrap:wrap">
-        <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:9px;font-weight:700;margin-right:4px">P</span>Present</span>
-        <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:9px;font-weight:700;margin-right:4px">A</span>Absent</span>
-        <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:9px;margin-right:4px">—</span>Weekend / Future date</span>
-      </div>
-    </div>`;
 }
 
 
@@ -2887,12 +2784,18 @@ function _drawLeafletMarkers(points) {
 // ─── END ATTENDANCE MAP VIEW ─────────────────────────────────────
 
 function exportAttendanceCSV() {
-  api('GET', '/attendance/history').then(hist => {
+  Promise.all([
+    api('GET', '/attendance/history'),
+    api('GET', '/attendance/percentage'),
+  ]).then(([hist, pctStats]) => {
     if (!hist) { showToast('Could not load data'); return; }
 
     // Build a lookup: userId+date → record
     const lookup = {};
     hist.forEach(r => { lookup[r.userId + '|' + r.date] = r; });
+
+    const statsByUser = {};
+    (pctStats || []).forEach(s => { statsByUser[s.userId] = s; });
 
     const allDates = [...new Set(hist.map(r => r.date))].sort();
     const members  = getNonFounders();
@@ -2914,6 +2817,17 @@ function exportAttendanceCSV() {
       });
     });
 
+    // Attendance % summary — same shared calculation used everywhere else
+    // (floored at Jun 1, 2026 or joining date, whichever is later;
+    // excludes Sundays, holidays, and future dates).
+    rows.push([]);
+    rows.push(['Attendance Summary']);
+    rows.push(['Employee', 'Calculation Start', 'Working Days', 'Present Days', 'Attendance %']);
+    members.forEach(u => {
+      const s = statsByUser[u.id] || { calculation_start_date: '--', total_working_days: 0, present_days: 0, percentage: 0 };
+      rows.push([u.name, s.calculation_start_date || '--', s.total_working_days, s.present_days, s.percentage + '%']);
+    });
+
     const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
     const a   = document.createElement('a');
     a.href    = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
@@ -2922,6 +2836,7 @@ function exportAttendanceCSV() {
     showToast('CSV downloaded ✓');
   });
 }
+
 
 // function founderAttCard(u) {
 //   const attObj = ATTENDANCE[u.id] || {}; const s = attObj.status || 'absent'; const c = ac(u.id);
@@ -3085,11 +3000,16 @@ async function checkOutAttendance(uid) {
   renderAttendance();
 }
 
-function updateSidebarAttendance() {
+async function updateSidebarAttendance() {
   if (!isFounderLike(currentUser)) return;
   const list = document.getElementById('sidebar-att-list'); if (!list) return;
   const all  = getNonFounders();
   if (!all.length) { list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:4px">No staff added yet</div>'; return; }
+
+  const pctStats = await api('GET', '/attendance/percentage') || [];
+  const statsByUser = {};
+  pctStats.forEach(s => { statsByUser[s.userId] = s; });
+
   list.innerHTML = all.slice(0,12).map(u => {
     const attObj    = ATTENDANCE[u.id] || {};
     const s         = attObj.status || 'absent';
@@ -3097,10 +3017,13 @@ function updateSidebarAttendance() {
     const ciTime    = attObj.checkin_time  ? formatAttendanceTime(attObj.checkin_time)  : '--';
     const coTime    = attObj.checkout_time ? formatAttendanceTime(attObj.checkout_time) : '--';
     const firstName = u.name.split(' ')[0];
+    const pct       = statsByUser[u.id]?.percentage ?? 0;
+    const pctColor  = pct >= 90 ? 'var(--green)' : pct >= 70 ? '#FBBF24' : pct >= 50 ? '#FB923C' : '#E57373';
     return `<div class="att-mini-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.07)">
       <div style="display:flex;align-items:center;gap:6px;width:100%">
         <div class="att-mini-dot" style="background:${isIn?'var(--green)':'var(--red)'}"></div>
-        <div class="att-mini-name" style="font-weight:600;font-size:11px">${firstName}</div>
+        <div class="att-mini-name" style="font-weight:600;font-size:11px;flex:1">${firstName}</div>
+        <div style="font-size:10px;font-weight:700;color:${pctColor}">${pct}%</div>
       </div>
       <div style="padding-left:13px;font-size:10px;color:rgba(165,214,167,0.55)">
         IN&nbsp;: <strong style="color:${ciTime!=='--'?'var(--green)':'rgba(165,214,167,0.4)'}">${ciTime}</strong>
