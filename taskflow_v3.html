@@ -486,6 +486,12 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .att-slider-thumb{width:20px;height:20px;border-radius:50%;position:absolute;top:2px;transition:all 0.3s}
 .att-slider-track.absent .att-slider-thumb{left:2px;background:var(--red);box-shadow:0 0 8px rgba(239,68,68,0.5)}
 .att-slider-track.present .att-slider-thumb{left:28px;background:var(--green);box-shadow:0 0 8px rgba(34,197,94,0.5)}
+.att-checkinout-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.att-checkin-btn{background:rgba(34,197,94,0.14);border:1px solid rgba(34,197,94,0.4);color:#15803D}
+.att-checkin-btn:not(:disabled):hover{background:rgba(34,197,94,0.22)}
+.att-checkout-btn{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);color:#B91C1C}
+.att-checkout-btn:not(:disabled):hover{background:rgba(239,68,68,0.18)}
+.att-checkin-btn:disabled,.att-checkout-btn:disabled{opacity:0.4;cursor:not-allowed}
 .founder-att-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}
 .founder-att-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;display:flex;align-items:center;gap:10px}
 .founder-att-card.present-card{border-color:rgba(34,197,94,0.25);background:rgba(34,197,94,0.03)}
@@ -739,6 +745,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1" width="12" height="14" rx="2"/><path d="M5 5h6M5 8h6M5 11h3"/></svg>
       My Notepad
      </div>
+      <div class="nav-item founder-only" id="nav-attmap" onclick="showPanel('attmap',this)">
+        <span class="nav-icon">🗺️</span>
+        Attendance Map
+      </div>
       <div class="nav-item founder-only" id="nav-autotasks" onclick="showPanel('autotasks',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/><path d="M4 2.5l8 0M4 13.5l8 0"/></svg>
         Auto Tasks
@@ -887,6 +897,11 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 
      <!-- AUTO TASKS -->
       <div class="panel" id="panel-autotasks"></div>
+
+      <!-- ATTENDANCE MAP VIEW -->
+      <div class="panel founder-only" id="panel-attmap">
+        <div id="attmap-view"><div class="loading-state"><div class="spinner"></div>Loading map data...</div></div>
+      </div>
 
       <!-- NOTEPAD -->
 <div class="panel" id="panel-notepad">
@@ -1478,7 +1493,29 @@ async function initApp() {
 // ═══════════════════════════════════════════════════════════
 async function loadUsers()    { const d = await api('GET', '/users'); if (d && Array.isArray(d)) ALL_USERS = d; }
 async function loadTasks()    { const d = await api('GET', '/tasks'); if (d && Array.isArray(d)) { TASKS = d; updateStats(); renderDashboard(); renderMyTasks(); renderVerify(); } }
-async function loadAttendance() { const d = await api('GET', '/attendance'); if (d && Array.isArray(d)) { ATTENDANCE = {}; d.forEach(a => { ATTENDANCE[a.userId] = { status: a.status, date: a.date, checkin_time: a.checkin_time, checkout_time: a.checkout_time }; }); } updateSidebarAttendance(); }
+async function loadAttendance() { const d = await api('GET', '/attendance'); if (d && Array.isArray(d)) { ATTENDANCE = {}; d.forEach(a => { ATTENDANCE[a.userId] = { status: a.status, date: a.date, checkin_time: a.checkin_time, checkout_time: a.checkout_time, worked_hours: a.worked_hours, checkin_latitude: a.checkin_latitude, checkin_longitude: a.checkin_longitude, checkout_latitude: a.checkout_latitude, checkout_longitude: a.checkout_longitude }; }); } updateSidebarAttendance(); }
+
+// Geolocation helper — resolves with {latitude, longitude} or null
+function getGeoPosition() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      ()  => resolve(null),
+      { timeout: 8000, maximumAge: 60000 }
+    );
+  });
+}
+
+function fmtCoord(lat, lng) {
+  if (lat == null || lng == null) return '--';
+  return parseFloat(lat).toFixed(4) + ', ' + parseFloat(lng).toFixed(4);
+}
+
+function mapsLink(lat, lng) {
+  if (lat == null || lng == null) return '';
+  return `https://maps.google.com/?q=${lat},${lng}`;
+}
 
 function formatAttendanceTime(ts) {
   if (!ts) return '--';
@@ -2330,85 +2367,50 @@ function renderMyTasks() {
 // ATTENDANCE
 // ═══════════════════════════════════════════════════════════
 
-async function renderAttendance() {
-  const view = document.getElementById('attendance-view');
-  
-  // Show basic content immediately, don't wait for history
-  if (isFounderLike(currentUser)) {
-    const all    = getNonFounders();
-    const pCount = all.filter(u => ATTENDANCE[u.id]?.status === 'present').length;
-    const aCount = all.length - pCount;
-    const emps   = getEmployees(), interns = getInterns(), trs = getTrainers();
+// Classify a single day's attendance cell for a user.
+// Returns the number of working days (Mon–Sat, excluding Sundays and given holiday dates)
+// between startDateStr and today (both inclusive). startDateStr is 'YYYY-MM-DD'.
+// holidays: optional Array/Set of 'YYYY-MM-DD' strings to exclude.
+function workingDaysBetween(startDateStr, holidays) {
+  if (!startDateStr) return 0;
+  const holidaySet = holidays instanceof Set ? holidays : new Set(holidays || []);
+  const today = new Date().toISOString().split('T')[0];
+  if (startDateStr > today) return 0;
 
-    // Render today's view immediately without waiting
-    view.innerHTML = `
-      <div class="section-header" style="margin-bottom:20px">
-        <div class="section-title">Attendance Overview</div>
-        <div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
-      </div>
-      <div class="att-summary-row">
-        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--green)">${pCount}</div><div class="att-sum-lbl">Present Today</div></div>
-        <div class="att-sum-card"><div class="att-sum-num" style="color:var(--red)">${aCount}</div><div class="att-sum-lbl">Absent Today</div></div>
-        <div class="att-sum-card"><div class="att-sum-num">${all.length}</div><div class="att-sum-lbl">Total Staff</div></div>
-      </div>
-      ${emps.length    ? `<div class="section-header" style="margin-top:10px"><div class="section-title">Employees</div></div><div class="founder-att-grid fade">${emps.map(founderAttCard).join('')}</div>` : ''}
-      ${interns.length ? `<div class="section-header" style="margin-top:20px"><div class="section-title">Interns</div></div><div class="founder-att-grid fade">${interns.map(founderAttCard).join('')}</div>` : ''}
-      ${trs.length     ? `<div class="section-header" style="margin-top:20px"><div class="section-title">Trainers</div></div><div class="founder-att-grid fade">${trs.map(founderAttCard).join('')}</div>` : ''}
-      ${!all.length    ? '<div class="empty-state"><div class="e-icon">👥</div><p>No staff added yet.</p></div>' : ''}
-      <div class="divider"></div>
-      <div id="att-report-section">
-        <div class="loading-state"><div class="spinner"></div>Loading cumulative report...</div>
-      </div>`;
-
-    updateSidebarAttendance();
-
-    // Now load history separately — won't block the page
-    try {
-      const hist = await api('GET', '/attendance/history') || [];
-      renderAttendanceReport(hist, all);
-    } catch(e) {
-      document.getElementById('att-report-section').innerHTML =
-        '<div style="padding:16px;color:var(--text3);font-size:13px;text-align:center">Could not load cumulative report.</div>';
-    }
-
-  } else {
-    // Employee/intern/trainer view — unchanged
-    const attObj = ATTENDANCE[currentUser.id] || {};
-    const st = attObj.status || 'absent';
-    const ciTime = formatAttendanceTime(attObj.checkin_time);
-    const coTime = formatAttendanceTime(attObj.checkout_time);
-    view.innerHTML = `<div style="max-width:480px">
-      <div style="margin-bottom:24px">
-        <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">Mark Your Attendance</div>
-        <div style="font-size:13px;color:var(--text2)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
-      </div>
-      <div class="attendance-bar-wrap fade">
-        <div class="att-user-info"><div class="att-user-name">${currentUser.name}</div><div class="att-user-role">${currentUser.role}</div></div>
-        <div class="att-toggle-wrap">
-          <span class="att-label-absent">Absent</span>
-          <div class="att-slider-track ${st}" onclick="toggleAttendance('${currentUser.id}')"><div class="att-slider-thumb"></div></div>
-          <span class="att-label-present">Present</span>
-        </div>
-      </div>
-      <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;text-align:center">
-        <div style="font-size:40px;margin-bottom:10px">${st === 'present' ? '✅' : '❌'}</div>
-        <div style="font-size:16px;font-weight:600;color:${st === 'present' ? 'var(--green)' : 'var(--red)'}">${st === 'present' ? 'You are marked Present today' : 'You are marked Absent today'}</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:6px">${st === 'present' ? 'Your attendance has been recorded' : 'Slide the toggle to mark yourself present'}</div>
-        ${ciTime !== '--' || coTime !== '--' ? `<div style="margin-top:14px;display:flex;justify-content:center;gap:24px;flex-wrap:wrap">
-          <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check In</div><div style="font-size:13px;font-weight:500;color:var(--green)">${ciTime}</div></div>
-          <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check Out</div><div style="font-size:13px;font-weight:500;color:${coTime !== '--' ? 'var(--red)' : 'var(--text3)'}">${coTime}</div></div>
-        </div>` : ''}
-      </div>
-    </div>`;
-    updateSidebarAttendance();
+  let count = 0;
+  const cur  = new Date(startDateStr + 'T00:00:00');
+  const last = new Date(today + 'T00:00:00');
+  while (cur <= last) {
+    const dow     = cur.getDay();                        // 0 = Sunday
+    const dateStr = cur.toISOString().split('T')[0];
+    if (dow !== 0 && !holidaySet.has(dateStr)) count++; // Mon–Sat, not a holiday
+    cur.setDate(cur.getDate() + 1);
   }
+  return count;
+}
+
+//  - explicit 'present' / 'absent' status  -> 'P' / 'A'
+//  - no record on a future date            -> '-'  (nothing to mark yet)
+//  - no record on a weekend (Sat/Sun)      -> '-'  (non-working day)
+//  - no record on a past/today working day -> 'A'  (failed to mark = absent)
+function classifyAttendanceCell(dateStr, status) {
+  if (status === 'present' || status === 'completed') return 'P';
+  if (status === 'absent')  return 'A';
+
+  const todayIso = new Date().toISOString().split('T')[0];
+  if (dateStr > todayIso) return '-';
+
+  const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) return '-';
+
+  return 'A';
 }
 
 async function renderAttendance() {
   const view = document.getElementById('attendance-view');
   if (isFounderLike(currentUser)) {
     const all    = getNonFounders();
-    const pCount = all.filter(u => ATTENDANCE[u.id]?.status === 'present').length;
+    const pCount = all.filter(u => ['present','completed'].includes(ATTENDANCE[u.id]?.status)).length;
     const aCount = all.length - pCount;
     const emps   = getEmployees(), interns = getInterns(), trs = getTrainers();
 
@@ -2423,11 +2425,7 @@ async function renderAttendance() {
         <div class="section-header" style="margin-bottom:12px"><div class="section-title">My Attendance</div></div>
         <div class="attendance-bar-wrap fade">
           <div class="att-user-info"><div class="att-user-name">${currentUser.name}</div><div class="att-user-role">Founder Assistant</div></div>
-          <div class="att-toggle-wrap">
-            <span class="att-label-absent">Absent</span>
-            <div class="att-slider-track ${selfStatus}" onclick="toggleAttendance('${currentUser.id}')"><div class="att-slider-thumb"></div></div>
-            <span class="att-label-present">Present</span>
-          </div>
+          ${attendanceCheckInOutHTML(currentUser.id, selfAttObj)}
         </div>
         ${selfCiTime !== '--' || selfCoTime !== '--' ? `<div style="margin-top:10px;display:flex;gap:24px;flex-wrap:wrap;padding:0 4px">
           <span style="font-size:11px;color:var(--text3)">Check In: <strong style="color:var(--green)">${selfCiTime}</strong></span>
@@ -2448,14 +2446,16 @@ async function renderAttendance() {
 
     const memberStats = all.map(u => {
       const days    = userDates[u.id] || {};
-      const present = allDates.filter(d => days[d] === 'present').length;
-      const absent  = allDates.filter(d => days[d] === 'absent').length;
-      const pct     = totalDays > 0 ? Math.round((present / totalDays) * 100) : 0;
+      const results = allDates.map(d => classifyAttendanceCell(d, days[d]));
+      const present = results.filter(r => r === 'P').length;
+      const absent  = results.filter(r => r === 'A').length;
+      const workingDays = workingDaysBetween(u.joining_date);
+      const pct     = workingDays > 0 ? parseFloat(((present / workingDays) * 100).toFixed(2)) : 0;
       return { u, present, absent, pct, days };
     }).sort((a, b) => b.pct - a.pct);
 
-    const avgPct      = memberStats.length ? Math.round(memberStats.reduce((s, m) => s + m.pct, 0) / memberStats.length) : 0;
-    const perfectCount = memberStats.filter(m => m.pct === 100 && totalDays > 0).length;
+    const avgPct      = memberStats.length ? parseFloat((memberStats.reduce((s, m) => s + m.pct, 0) / memberStats.length).toFixed(2)) : 0;
+    const perfectCount = memberStats.filter(m => m.pct >= 100 && totalDays > 0).length;
     const atRisk       = memberStats.filter(m => m.pct < 50  && totalDays > 0).length;
 
     const barColor = pct => pct >= 90 ? '#22C55E' : pct >= 70 ? '#FBBF24' : pct >= 50 ? '#FB923C' : '#EF4444';
@@ -2476,9 +2476,9 @@ async function renderAttendance() {
       const bColor  = barColor(pct);
       const tColor  = barText(pct);
       const dateCells = allDates.map(d => {
-        const s = days[d];
-        if (s === 'present') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
-        if (s === 'absent')  return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
+        const cell = classifyAttendanceCell(d, days[d]);
+        if (cell === 'P') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
+        if (cell === 'A') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
         return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:10px">—</span></td>`;
       }).join('');
 
@@ -2568,7 +2568,7 @@ async function renderAttendance() {
         <div style="display:flex;gap:16px;padding:10px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);align-items:center;flex-wrap:wrap">
           <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:9px;font-weight:700;margin-right:4px">P</span>Present</span>
           <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:9px;font-weight:700;margin-right:4px">A</span>Absent</span>
-          <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:9px;margin-right:4px">—</span>No record</span>
+          <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:9px;margin-right:4px">—</span>Weekend / Future date</span>
         </div>
         ` : `
         <div style="padding:32px;text-align:center;color:var(--text3);font-size:13px">
@@ -2582,6 +2582,10 @@ async function renderAttendance() {
     const st = attObj2.status || 'absent';
     const ciTime2 = formatAttendanceTime(attObj2.checkin_time);
     const coTime2 = formatAttendanceTime(attObj2.checkout_time);
+    const statusIcon2 = st === 'completed' ? '✅' : st === 'present' ? '🟢' : '❌';
+    const statusColor2 = st === 'completed' ? 'var(--green)' : st === 'present' ? 'var(--green)' : 'var(--red)';
+    const statusText2  = st === 'completed' ? 'You have completed attendance for today' : st === 'present' ? 'You are checked in — don\'t forget to check out' : 'You have not checked in today';
+    const statusSub2   = st === 'completed' ? 'Check-in and check-out both recorded' : st === 'present' ? 'Click Check Out when you finish for the day' : 'Click Check In to mark your arrival';
     view.innerHTML = `<div style="max-width:480px">
       <div style="margin-bottom:24px">
         <div style="font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:4px">Mark Your Attendance</div>
@@ -2589,19 +2593,16 @@ async function renderAttendance() {
       </div>
       <div class="attendance-bar-wrap fade">
         <div class="att-user-info"><div class="att-user-name">${currentUser.name}</div><div class="att-user-role">${currentUser.role}</div></div>
-        <div class="att-toggle-wrap">
-          <span class="att-label-absent">Absent</span>
-          <div class="att-slider-track ${st}" onclick="toggleAttendance('${currentUser.id}')"><div class="att-slider-thumb"></div></div>
-          <span class="att-label-present">Present</span>
-        </div>
+        ${attendanceCheckInOutHTML(currentUser.id, attObj2)}
       </div>
       <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;text-align:center">
-        <div style="font-size:40px;margin-bottom:10px">${st === 'present' ? '✅' : '❌'}</div>
-        <div style="font-size:16px;font-weight:600;color:${st === 'present' ? 'var(--green)' : 'var(--red)'}">${st === 'present' ? 'You are marked Present today' : 'You are marked Absent today'}</div>
-        <div style="font-size:12px;color:var(--text3);margin-top:6px">${st === 'present' ? 'Your attendance has been recorded' : 'Slide the toggle to mark yourself present'}</div>
+        <div style="font-size:40px;margin-bottom:10px">${statusIcon2}</div>
+        <div style="font-size:16px;font-weight:600;color:${statusColor2}">${statusText2}</div>
+        <div style="font-size:12px;color:var(--text3);margin-top:6px">${statusSub2}</div>
         ${ciTime2 !== '--' || coTime2 !== '--' ? `<div style="margin-top:14px;display:flex;justify-content:center;gap:24px;flex-wrap:wrap">
           <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check In</div><div style="font-size:13px;font-weight:500;color:var(--green)">${ciTime2}</div></div>
           <div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Check Out</div><div style="font-size:13px;font-weight:500;color:${coTime2 !== '--' ? 'var(--red)' : 'var(--text3)'}">${coTime2}</div></div>
+          ${attObj2.worked_hours != null ? `<div style="text-align:center"><div style="font-size:10px;font-weight:600;color:var(--text3);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:3px">Worked Hours</div><div style="font-size:13px;font-weight:500;color:var(--gold2)">${attObj2.worked_hours}h</div></div>` : ''}
         </div>` : ''}
       </div>
     </div>`;
@@ -2632,14 +2633,16 @@ function renderAttendanceReport(hist, all) {
 
   const memberStats = all.map(u => {
     const days    = userDates[u.id] || {};
-    const present = allDates.filter(d => days[d] === 'present').length;
-    const absent  = allDates.filter(d => days[d] === 'absent').length;
-    const pct     = totalDays > 0 ? Math.round((present / totalDays) * 100) : 0;
+    const results = allDates.map(d => classifyAttendanceCell(d, days[d]));
+    const present = results.filter(r => r === 'P').length;
+    const absent  = results.filter(r => r === 'A').length;
+    const workingDays = workingDaysBetween(u.joining_date);
+    const pct     = workingDays > 0 ? parseFloat(((present / workingDays) * 100).toFixed(2)) : 0;
     return { u, present, absent, pct, days };
   }).sort((a, b) => b.pct - a.pct);
 
-  const avgPct       = memberStats.length ? Math.round(memberStats.reduce((s,m) => s + m.pct, 0) / memberStats.length) : 0;
-  const perfectCount = memberStats.filter(m => m.pct === 100).length;
+  const avgPct       = memberStats.length ? parseFloat((memberStats.reduce((s,m) => s + m.pct, 0) / memberStats.length).toFixed(2)) : 0;
+  const perfectCount = memberStats.filter(m => m.pct >= 100).length;
   const atRisk       = memberStats.filter(m => m.pct < 50).length;
 
   const barColor = pct => pct >= 90 ? '#22C55E' : pct >= 70 ? '#FBBF24' : pct >= 50 ? '#FB923C' : '#EF4444';
@@ -2658,9 +2661,9 @@ function renderAttendanceReport(hist, all) {
   const memberRows = memberStats.map(({ u, present, absent, pct, days }) => {
     const c = ac(u.id);
     const dateCells = allDates.map(d => {
-      const s = days[d];
-      if (s === 'present') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
-      if (s === 'absent')  return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
+      const cell = classifyAttendanceCell(d, days[d]);
+      if (cell === 'P') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
+      if (cell === 'A') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
       return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:10px">—</span></td>`;
     }).join('');
 
@@ -2720,28 +2723,197 @@ function renderAttendanceReport(hist, all) {
       <div style="display:flex;gap:16px;padding:10px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);align-items:center;flex-wrap:wrap">
         <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:9px;font-weight:700;margin-right:4px">P</span>Present</span>
         <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:9px;font-weight:700;margin-right:4px">A</span>Absent</span>
-        <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:9px;margin-right:4px">—</span>No record</span>
+        <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:9px;margin-right:4px">—</span>Weekend / Future date</span>
       </div>
     </div>`;
 }
 
 
+// ─── ATTENDANCE MAP VIEW ────────────────────────────────────────
+async function renderAttMap() {
+  const view = document.getElementById('attmap-view');
+  if (!view) return;
+  view.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading today\'s locations...</div>';
+
+  const data = await api('GET', '/attendance/map') || [];
+
+  if (!data.length) {
+    view.innerHTML = `<div class="empty-state" style="padding:48px 24px">
+      <div class="e-icon">📍</div>
+      <p>No location data for today.</p>
+      <p style="font-size:12px;color:var(--text3);margin-top:6px">Employees who check in with location sharing enabled will appear here.</p>
+    </div>`;
+    return;
+  }
+
+  // Build rows
+  const rows = data.map(e => {
+    const ciCoord = fmtCoord(e.checkin_latitude, e.checkin_longitude);
+    const coCoord = e.checkout_latitude != null ? fmtCoord(e.checkout_latitude, e.checkout_longitude) : '--';
+    const ciTime  = e.checkin_time  ? formatAttendanceTime(e.checkin_time)  : '--';
+    const coTime  = e.checkout_time ? formatAttendanceTime(e.checkout_time) : '--';
+    const st      = e.status || 'absent';
+    const stColor = st === 'completed' ? 'var(--green)' : st === 'present' ? '#3B82F6' : 'var(--red)';
+    const stLabel = st === 'completed' ? 'COMPLETED' : st === 'present' ? 'PRESENT' : st.toUpperCase();
+    const u       = USERS.find(u => u.id === e.userId) || e;
+    const c       = ac(e.userId);
+
+    const ciMapBtn = e.checkin_latitude != null
+      ? `<a href="${mapsLink(e.checkin_latitude, e.checkin_longitude)}" target="_blank" rel="noopener"
+           style="display:inline-flex;align-items:center;gap:3px;color:var(--gold2);text-decoration:none;font-size:11px;border:1px solid var(--gold3);border-radius:4px;padding:3px 8px;white-space:nowrap">
+          🗺 Open in Maps
+         </a>` : '';
+    const coMapBtn = e.checkout_latitude != null
+      ? `<a href="${mapsLink(e.checkout_latitude, e.checkout_longitude)}" target="_blank" rel="noopener"
+           style="display:inline-flex;align-items:center;gap:3px;color:#C0392B;text-decoration:none;font-size:11px;border:1px solid rgba(239,68,68,0.35);border-radius:4px;padding:3px 8px;white-space:nowrap">
+          🔴 Out Map
+         </a>` : '';
+
+    return `<tr>
+      <td style="padding:12px 18px;border-bottom:1px solid var(--border2)">
+        <div style="display:flex;align-items:center;gap:8px">
+          ${u.profile_photo
+            ? `<img src="${u.profile_photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">`
+            : `<div class="avatar" style="background:linear-gradient(135deg,${c}99,${c});width:32px;height:32px;font-size:11px;flex-shrink:0">${u.initials||'?'}</div>`}
+          <div>
+            <div style="font-size:13px;font-weight:600">${e.name}</div>
+            <div style="font-size:11px;color:var(--text3);text-transform:capitalize">${e.role}${e.team ? ' · ' + e.team : ''}</div>
+          </div>
+        </div>
+      </td>
+      <td style="padding:12px 10px;border-bottom:1px solid var(--border2)">
+        <span style="font-size:11px;font-weight:600;color:${stColor};background:${stColor}18;border:1px solid ${stColor}44;border-radius:20px;padding:2px 9px">${stLabel}</span>
+      </td>
+      <td style="padding:12px 10px;border-bottom:1px solid var(--border2);font-size:12px;color:var(--green);font-weight:500">${ciTime}</td>
+      <td style="padding:12px 10px;border-bottom:1px solid var(--border2);font-size:12px;color:${coTime!=='--'?'#C0392B':'var(--text3)'};">${coTime}</td>
+      <td style="padding:12px 10px;border-bottom:1px solid var(--border2)">
+        <div style="font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums;margin-bottom:4px">📍 ${ciCoord}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${ciMapBtn}${coMapBtn}</div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Leaflet map plot
+  const mapPoints = data
+    .filter(e => e.checkin_latitude != null)
+    .map(e => ({ name: e.name, lat: e.checkin_latitude, lng: e.checkin_longitude, status: e.status }));
+
+  const leafletMapHTML = mapPoints.length > 0 ? `
+    <div style="margin-bottom:20px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)">
+      <div id="leaflet-map" style="height:340px;background:#1a2a1a"></div>
+    </div>` : '';
+
+  view.innerHTML = `
+    <div class="section-header" style="margin-bottom:16px">
+      <div class="section-title">Today's Check-In Locations</div>
+      <div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})} · ${data.length} employee${data.length!==1?'s':''} with location</div>
+    </div>
+
+    ${leafletMapHTML}
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+      <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table style="border-collapse:collapse;font-size:12px;min-width:100%;width:100%">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border)">
+              <th style="padding:10px 18px;text-align:left;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;min-width:180px">Employee</th>
+              <th style="padding:10px;text-align:left;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Status</th>
+              <th style="padding:10px;text-align:left;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Check In</th>
+              <th style="padding:10px;text-align:left;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Check Out</th>
+              <th style="padding:10px;text-align:left;font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;min-width:220px">Location</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div style="padding:10px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--text3)">
+        Only employees who share location during check-in appear here. Location is captured once at check-in and optionally at check-out.
+      </div>
+    </div>`;
+
+  // Initialize Leaflet map after render
+  if (mapPoints.length > 0) {
+    _initAttMapLeaflet(mapPoints);
+  }
+}
+
+function _initAttMapLeaflet(points) {
+  // Load Leaflet CSS + JS dynamically if not already loaded
+  if (!document.getElementById('leaflet-css')) {
+    const css = document.createElement('link');
+    css.id   = 'leaflet-css';
+    css.rel  = 'stylesheet';
+    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    document.head.appendChild(css);
+  }
+  const loadLeaflet = () => {
+    if (window.L) { _drawLeafletMarkers(points); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+    s.onload = () => _drawLeafletMarkers(points);
+    document.head.appendChild(s);
+  };
+  // Small delay so DOM is painted
+  setTimeout(loadLeaflet, 100);
+}
+
+function _drawLeafletMarkers(points) {
+  const mapEl = document.getElementById('leaflet-map');
+  if (!mapEl || !window.L) return;
+  // Clear any old map instance
+  if (mapEl._leaflet_id) { mapEl._leaflet_id = null; mapEl.innerHTML = ''; }
+  const avgLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
+  const avgLng = points.reduce((s, p) => s + p.lng, 0) / points.length;
+  const map = L.map('leaflet-map').setView([avgLat, avgLng], 13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '\u00A9 OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
+  points.forEach(p => {
+    const color = p.status === 'completed' ? '#22C55E' : '#3B82F6';
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="width:14px;height:14px;background:${color};border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.4)"></div>`,
+      iconSize: [14, 14], iconAnchor: [7, 7]
+    });
+    L.marker([p.lat, p.lng], { icon })
+      .addTo(map)
+      .bindPopup(`<strong>${p.name}</strong><br>${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}`);
+  });
+  if (points.length > 1) {
+    const bounds = L.latLngBounds(points.map(p => [p.lat, p.lng]));
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }
+}
+// ─── END ATTENDANCE MAP VIEW ─────────────────────────────────────
+
 function exportAttendanceCSV() {
   api('GET', '/attendance/history').then(hist => {
     if (!hist) { showToast('Could not load data'); return; }
+
+    // Build a lookup: userId+date → record
+    const lookup = {};
+    hist.forEach(r => { lookup[r.userId + '|' + r.date] = r; });
+
     const allDates = [...new Set(hist.map(r => r.date))].sort();
     const members  = getNonFounders();
-    const header   = ['Name', 'Role', 'Team', ...allDates, 'Total Present', 'Total Absent', 'Rate %'];
-    const rows     = [header];
+
+    const header = ['Employee', 'Date', 'Status', 'Check In', 'Check Out', 'Hours Worked'];
+    const rows   = [header];
+
     members.forEach(u => {
-      const byDate = {};
-      hist.filter(r => r.userId === u.id).forEach(r => byDate[r.date] = r.status);
-      const cells   = allDates.map(d => byDate[d] ? (byDate[d] === 'present' ? 'P' : 'A') : '-');
-      const present = cells.filter(s => s === 'P').length;
-      const absent  = cells.filter(s => s === 'A').length;
-      const pct     = allDates.length ? Math.round((present / allDates.length) * 100) : 0;
-      rows.push([u.name, u.role, u.team || '', ...cells, present, absent, pct + '%']);
+      allDates.forEach(date => {
+        const rec = lookup[u.id + '|' + date];
+        if (!rec) return; // skip dates with no record for this user
+
+        const status   = rec.status || 'absent';
+        const checkIn  = rec.checkin_time  ? formatAttendanceTime(rec.checkin_time)  : '--';
+        const checkOut = rec.checkout_time ? formatAttendanceTime(rec.checkout_time) : '--';
+        const hoursWkd = rec.worked_hours  != null ? rec.worked_hours : '--';
+
+        rows.push([u.name, date, status, checkIn, checkOut, hoursWkd]);
+      });
     });
+
     const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
     const a   = document.createElement('a');
     a.href    = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
@@ -2770,20 +2942,43 @@ function exportAttendanceCSV() {
 // }
 
 function founderAttCard(u) {
-    const attObj = ATTENDANCE[u.id] || {};
-    const status = attObj.status || "absent";
+    const attObj    = ATTENDANCE[u.id] || {};
+    const status    = attObj.status || "absent";
+    const isPresent = status === "present" || status === "completed";
 
-    const checkIn = formatAttendanceTime(attObj.checkin_time);
+    const checkIn  = formatAttendanceTime(attObj.checkin_time);
     const checkOut = formatAttendanceTime(attObj.checkout_time);
+    const hours    = attObj.worked_hours != null ? attObj.worked_hours + "h" : "--";
+
+    const pillLabel = status === "completed" ? "COMPLETED" : status === "present" ? "PRESENT" : "ABSENT";
+
+    const ciLat = attObj.checkin_latitude, ciLng = attObj.checkin_longitude;
+    const coLat = attObj.checkout_latitude, coLng = attObj.checkout_longitude;
+    const hasCiGeo = ciLat != null && ciLng != null;
+    const hasCoGeo = coLat != null && coLng != null;
+
+    const locationHTML = hasCiGeo ? `
+        <div style="font-size:10px;color:var(--text3);margin-top:3px;display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+          <span>📍</span>
+          <span style="font-variant-numeric:tabular-nums">${fmtCoord(ciLat, ciLng)}</span>
+          <a href="${mapsLink(ciLat, ciLng)}" target="_blank" rel="noopener"
+             style="color:var(--gold2);text-decoration:none;font-size:9px;border:1px solid var(--gold3);border-radius:3px;padding:1px 4px;white-space:nowrap">
+            🗺 Map
+          </a>
+          ${hasCoGeo && (coLat !== ciLat || coLng !== ciLng) ? `<a href="${mapsLink(coLat, coLng)}" target="_blank" rel="noopener"
+             style="color:#C0392B;text-decoration:none;font-size:9px;border:1px solid rgba(239,68,68,0.35);border-radius:3px;padding:1px 4px;white-space:nowrap">
+            🔴 Out
+          </a>` : ''}
+        </div>` : '';
 
     return `
-    <div class="founder-att-card ${status === "present" ? "present-card" : "absent-card"}">
+    <div class="founder-att-card ${isPresent ? "present-card" : "absent-card"}">
 
         ${userAvatarHTML(u, 28, 10)}
 
-        <div style="flex:1">
+        <div style="flex:1;min-width:0">
 
-            <div style="font-size:12px;font-weight:600">
+            <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                 ${u.name}
             </div>
 
@@ -2791,19 +2986,22 @@ function founderAttCard(u) {
                 ${u.team || roleLabel(u.role)}
             </div>
 
-            <div style="font-size:10px;color:var(--text3);margin-top:4px">
-                🕒 In : ${checkIn}
+            <div style="font-size:10px;color:var(--text3);margin-top:4px;display:flex;flex-wrap:wrap;gap:6px">
+            <span>IN&nbsp;: <strong style="color:${checkIn!=='--' ? 'var(--green)' : 'var(--text3)'}">${checkIn}</strong></span>                <span>OUT&nbsp;: <strong style="color:${checkOut!=='--'?'#C0392B':'var(--text3)'}">${checkOut}</strong></span>
+                ${status === "completed" ? `<span style="color:var(--gold2)">⏱ ${hours}</span>` : ''}
             </div>
+
+            ${locationHTML}
 
         </div>
 
         <span class="att-status-pill ${
-            status === "present"
+            isPresent
                 ? "att-present-pill"
                 : "att-absent-pill"
         }">
 
-            ${status === "present" ? "PRESENT" : "ABSENT"}
+            ${pillLabel}
 
         </span>
 
@@ -2820,14 +3018,96 @@ async function toggleAttendance(uid) {
   showToast(`Attendance marked as ${newStatus} ✓`);
 }
 
+// Renders the Check In / Check Out button pair for a user, respecting:
+//  - Check In: enabled only once per day (disabled once checkin_time exists)
+//  - Check Out: enabled only after check-in, and only once per day
+function attendanceCheckInOutHTML(uid, attObj) {
+  const obj = attObj || {};
+  const hasCheckedIn  = !!obj.checkin_time;
+  const hasCheckedOut = !!obj.checkout_time;
+  const canCheckIn    = !hasCheckedIn;
+  const canCheckOut   = hasCheckedIn && !hasCheckedOut;
+  return `<div class="att-checkinout-wrap">
+    <button class="btn-sm att-checkin-btn" ${canCheckIn ? '' : 'disabled'} onclick="checkInAttendance('${uid}')">🟢 Check In</button>
+    <button class="btn-sm att-checkout-btn" ${canCheckOut ? '' : 'disabled'} onclick="checkOutAttendance('${uid}')">🔴 Check Out</button>
+  </div>`;
+}
+
+async function checkInAttendance(uid) {
+  showToast('📍 Getting your location…');
+  const geo = await getGeoPosition();
+  const payload = { userId: uid };
+  if (geo) { payload.latitude = geo.latitude; payload.longitude = geo.longitude; }
+  const res = await api('POST', '/attendance/checkin', payload);
+  if (res?.success) {
+    ATTENDANCE[uid] = {
+      ...(ATTENDANCE[uid] || {}),
+      status:             res.status,
+      checkin_time:       res.checkin_time,
+      checkout_time:      res.checkout_time || '',
+      worked_hours:       res.worked_hours,
+      checkin_latitude:   res.checkin_latitude  ?? null,
+      checkin_longitude:  res.checkin_longitude ?? null,
+      checkout_latitude:  null,
+      checkout_longitude: null,
+    };
+    const locMsg = geo ? ` · 📍 ${fmtCoord(geo.latitude, geo.longitude)}` : '';
+    showToast('Checked in ✓' + locMsg);
+  } else {
+    showToast(res?.error || 'Could not check in');
+  }
+  renderAttendance();
+}
+
+async function checkOutAttendance(uid) {
+  showToast('📍 Getting your location…');
+  const geo = await getGeoPosition();
+  const payload = { userId: uid };
+  if (geo) { payload.latitude = geo.latitude; payload.longitude = geo.longitude; }
+  const res = await api('POST', '/attendance/checkout', payload);
+  if (res?.success) {
+    ATTENDANCE[uid] = {
+      ...(ATTENDANCE[uid] || {}),
+      status:              res.status,
+      checkin_time:        res.checkin_time,
+      checkout_time:       res.checkout_time,
+      worked_hours:        res.worked_hours,
+      checkin_latitude:    res.checkin_latitude   ?? ATTENDANCE[uid]?.checkin_latitude  ?? null,
+      checkin_longitude:   res.checkin_longitude  ?? ATTENDANCE[uid]?.checkin_longitude ?? null,
+      checkout_latitude:   res.checkout_latitude  ?? null,
+      checkout_longitude:  res.checkout_longitude ?? null,
+    };
+    const locMsg = geo ? ` · 📍 ${fmtCoord(geo.latitude, geo.longitude)}` : '';
+    showToast(res.worked_hours != null ? `Checked out ✓ — ${res.worked_hours}h worked` + locMsg : 'Checked out ✓' + locMsg);
+  } else {
+    showToast(res?.error || 'Could not check out');
+  }
+  renderAttendance();
+}
+
 function updateSidebarAttendance() {
   if (!isFounderLike(currentUser)) return;
   const list = document.getElementById('sidebar-att-list'); if (!list) return;
   const all  = getNonFounders();
   if (!all.length) { list.innerHTML = '<div style="font-size:11px;color:var(--text3);padding:4px">No staff added yet</div>'; return; }
   list.innerHTML = all.slice(0,12).map(u => {
-    const s = ATTENDANCE[u.id]?.status || 'absent';
-    return `<div class="att-mini-row"><div class="att-mini-dot" style="background:${s==='present'?'var(--green)':'var(--red)'}"></div><div class="att-mini-name">${u.name.split(' ')[0]}</div><span class="att-mini-status" style="color:${s==='present'?'var(--green)':'var(--red)'}">${s==='present'?'IN':'OUT'}</span></div>`;
+    const attObj    = ATTENDANCE[u.id] || {};
+    const s         = attObj.status || 'absent';
+    const isIn      = s === 'present' || s === 'completed';
+    const ciTime    = attObj.checkin_time  ? formatAttendanceTime(attObj.checkin_time)  : '--';
+    const coTime    = attObj.checkout_time ? formatAttendanceTime(attObj.checkout_time) : '--';
+    const firstName = u.name.split(' ')[0];
+    return `<div class="att-mini-row" style="flex-direction:column;align-items:flex-start;gap:2px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.07)">
+      <div style="display:flex;align-items:center;gap:6px;width:100%">
+        <div class="att-mini-dot" style="background:${isIn?'var(--green)':'var(--red)'}"></div>
+        <div class="att-mini-name" style="font-weight:600;font-size:11px">${firstName}</div>
+      </div>
+      <div style="padding-left:13px;font-size:10px;color:rgba(165,214,167,0.55)">
+        IN&nbsp;: <strong style="color:${ciTime!=='--'?'var(--green)':'rgba(165,214,167,0.4)'}">${ciTime}</strong>
+        &nbsp;·&nbsp;
+        OUT&nbsp;: <strong style="color:${coTime!=='--'?'#E57373':'rgba(165,214,167,0.4)'}">${coTime}</strong>
+      </div>
+    </div>`;
   }).join('');
 }
 
@@ -3848,7 +4128,8 @@ function showPanel(name,navEl) {
     ratings:['Rate Employees','Daily performance ratings'],
     notepad:['My Notepad','Your private to-do list'],
     autotasks:['Auto Tasks','Scheduled task templates'],
-    mastermind:['PGI Mastermind','Projects, Interns & Intelligence']
+    mastermind:['PGI Mastermind','Projects, Interns & Intelligence'],
+    attmap:['Attendance Map','Today\'s check-in locations']
   };
   const t=titles[name]||['TaskFlow',''];
   document.getElementById('page-title').textContent=t[0];
@@ -3865,6 +4146,7 @@ function showPanel(name,navEl) {
   if(name==='notepad')    renderNotepad();
   if(name==='autotasks')  renderAutoTasks();
   if(name==='mastermind') renderMastermind();
+  if(name==='attmap')     renderAttMap();
   closeSidebar();
 }
 
@@ -5181,6 +5463,7 @@ function _buildAutoTasksUI(panel) {
               <select id="atf-target-type" onchange="_updateAutoTaskTargetOptions()">
                 <option value="team">Entire Team</option>
                 <option value="user">Specific User</option>
+                <option value="all">All Employees</option>
               </select>
             </div>
             <div class="form-field">
@@ -5232,6 +5515,8 @@ function _templateCardHTML(tpl) {
   let targetLabel = '';
   if (tpl.target_type === 'user') {
     targetLabel = '👤 ' + (uname(tpl.target_id) || tpl.target_id);
+  } else if (tpl.target_type === 'all') {
+    targetLabel = '🌐 All Employees';
   } else {
     const team = TEAM_CONFIG.find(t => t.id === tpl.target_id);
     targetLabel = '👥 ' + (team ? team.name : tpl.target_id);
@@ -5287,6 +5572,20 @@ function _updateAutoTaskTargetOptions() {
   if (!typeEl || !targetEl) return;
 
   const type = typeEl.value;
+
+  if (type === 'all') {
+    // No specific target needed — applies to every active user.
+    if (labelEl) labelEl.textContent = 'Target';
+    targetEl.innerHTML = '';
+    const o = document.createElement('option');
+    o.value = 'all';
+    o.textContent = 'Every active employee (all roles)';
+    targetEl.appendChild(o);
+    targetEl.disabled = true;
+    return;
+  }
+  targetEl.disabled = false;
+
   if (labelEl) labelEl.textContent = type === 'team' ? 'Team' : 'User';
   targetEl.innerHTML = '';
 
@@ -5365,9 +5664,9 @@ async function saveAutoTaskTemplate() {
   const active      = document.getElementById('atf-active').checked;
 
   if (!title)     { showToast('⚠ Title is required'); return; }
-  if (!target_id) { showToast('⚠ Please select a target team or user'); return; }
+  if (target_type !== 'all' && !target_id) { showToast('⚠ Please select a target team or user'); return; }
 
-  const payload = { title, description, priority, frequency, target_type, target_id, due_time, active };
+  const payload = { title, description, priority, frequency, target_type, target_id: target_type === 'all' ? '' : target_id, due_time, active };
   const btn = document.querySelector('#auto-task-form .btn-gold');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
