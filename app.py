@@ -1321,6 +1321,115 @@ def reset_ratings():
 # ATTENDANCE  (with timestamps)
 # ─────────────────────────────────────────────
 
+# Attendance % is never calculated using records older than this date,
+# even though older attendance rows stay untouched in the database.
+ATTENDANCE_START_DATE = datetime.date(2026, 6, 1)
+
+# Company-wide holidays excluded from attendance % calculations, in
+# addition to Sundays. There's no holiday-management UI in the app yet,
+# so this list is maintained directly in code — add more 'YYYY-MM-DD'
+# entries here as needed.
+COMPANY_HOLIDAYS = {
+    # "2026-08-15",
+}
+
+
+def _parse_user_date(value):
+    """Parse a user's joining_date (stored as 'YYYY-MM-DD' from <input type=date>) into a date object. Returns None if missing/unparsable."""
+    if not value:
+        return None
+    try:
+        return datetime.datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def get_working_days(start_date, end_date):
+    """
+    Count working days between start_date and end_date inclusive.
+    Excludes Sundays, COMPANY_HOLIDAYS, and any date after today (future dates
+    are never counted even if end_date is in the future).
+    """
+    if not start_date:
+        return 0
+    end_date = min(end_date, today_ist())
+    if start_date > end_date:
+        return 0
+    count, cur, one_day = 0, start_date, datetime.timedelta(days=1)
+    while cur <= end_date:
+        if cur.weekday() != 6 and cur.isoformat() not in COMPANY_HOLIDAYS:  # weekday() Sunday == 6
+            count += 1
+        cur += one_day
+    return count
+
+
+def get_present_days(user_id, start_date, end_date):
+    """Count distinct days a user was present ('present' or 'completed') between start_date and end_date inclusive. Never counts future dates."""
+    if not start_date:
+        return 0
+    end_date = min(end_date, today_ist())
+    if start_date > end_date:
+        return 0
+    rows = Attendance.query.filter(
+        Attendance.userId == user_id,
+        Attendance.status.in_(["present", "completed"]),
+        Attendance.date >= start_date.isoformat(),
+        Attendance.date <= end_date.isoformat(),
+    ).all()
+    return len({r.date for r in rows})
+
+
+def attendance_stats_for_user(user):
+    """
+    Full breakdown behind calculate_attendance_percentage() — the single
+    source of truth used by the Attendance Dashboard, Founder Dashboard,
+    Sidebar, Reports, and Excel Export.
+
+    - Floors the calculation start date at ATTENDANCE_START_DATE (2026-06-01).
+    - Employees who joined after that date are calculated from their own
+      joining date instead.
+    - Excludes Sundays, company holidays, and future dates.
+    """
+    join_date  = _parse_user_date(getattr(user, "joining_date", None))
+    start_date = ATTENDANCE_START_DATE if not join_date else max(ATTENDANCE_START_DATE, join_date)
+    today      = today_ist()
+
+    total_working_days = get_working_days(start_date, today)
+    present_days        = get_present_days(user.id, start_date, today)
+    percentage = 0 if total_working_days == 0 else round((present_days / total_working_days) * 100, 2)
+
+    return {
+        "percentage":             percentage,
+        "present_days":           present_days,
+        "total_working_days":     total_working_days,
+        "calculation_start_date": start_date.isoformat(),
+    }
+
+
+def calculate_attendance_percentage(user):
+    """Reusable function returning just the attendance % (rounded, 2dp) for a user."""
+    return attendance_stats_for_user(user)["percentage"]
+
+
+@app.route("/api/attendance/percentage", methods=["GET"])
+@jwt_required()
+def attendance_percentage():
+    """
+    Returns attendance % (and the supporting numbers) for every screen to
+    share — computed by the single attendance_stats_for_user() function.
+    Founders/founder-likes get every non-founder employee; everyone else
+    only gets their own stats.
+    """
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller:
+        return jsonify([])
+    users = User.query.filter(User.role != "founder").all() if is_founder_like(caller) else [caller]
+    return jsonify([
+        {"userId": u.id, "name": u.name, **attendance_stats_for_user(u)}
+        for u in users
+    ])
+
+
 def attendance_to_dict(att_row, user_obj=None):
     """Serialize an Attendance row, enriching with user info if provided."""
     d = {
