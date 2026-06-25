@@ -2644,7 +2644,7 @@ async function renderAttMap() {
   }
 
   // Build rows
-  const rows = data.map(e => {
+const rows = data.map(e => {
     const ciCoord = fmtCoord(e.checkin_latitude, e.checkin_longitude);
     const coCoord = e.checkout_latitude != null ? fmtCoord(e.checkout_latitude, e.checkout_longitude) : '--';
     const ciTime  = e.checkin_time  ? formatAttendanceTime(e.checkin_time)  : '--';
@@ -2652,7 +2652,7 @@ async function renderAttMap() {
     const st      = e.status || 'absent';
     const stColor = st === 'completed' ? 'var(--green)' : st === 'present' ? '#3B82F6' : 'var(--red)';
     const stLabel = st === 'completed' ? 'COMPLETED' : st === 'present' ? 'PRESENT' : st.toUpperCase();
-    const u       = USERS.find(u => u.id === e.userId) || e;
+    const u       = ALL_USERS.find(u => u.id === e.userId) || e;
     const c       = ac(e.userId);
 
     const ciMapBtn = e.checkin_latitude != null
@@ -2693,7 +2693,7 @@ async function renderAttMap() {
   // Leaflet map plot
   const mapPoints = data
     .filter(e => e.checkin_latitude != null)
-    .map(e => ({ name: e.name, lat: e.checkin_latitude, lng: e.checkin_longitude, status: e.status }));
+    .map(e => ({ name: e.name, lat: e.checkin_latitude, lng: e.checkin_longitude, status: e.status, checkin_time: formatAttendanceTime(e.checkin_time), checkout_time: e.checkout_time ? formatAttendanceTime(e.checkout_time) : null }));
 
   const leafletMapHTML = mapPoints.length > 0 ? `
     <div style="margin-bottom:20px;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border)">
@@ -2837,8 +2837,8 @@ function _drawLeafletMarkers(points) {
       const popupHTML = `
         <div style="font-family:sans-serif;min-width:170px">
           <div style="font-size:13px;font-weight:600;margin-bottom:4px">${p.name}</div>
-          <div style="font-size:11px;color:#666;margin-bottom:2px">Check-in: <strong>${p.checkin}</strong></div>
-          ${p.checkout ? `<div style="font-size:11px;color:#666;margin-bottom:2px">Check-out: <strong>${p.checkout}</strong></div>` : ''}
+          <div style="font-size:11px;color:#666;margin-bottom:2px">Check-in: <strong>${p.checkin_time || '--'}</strong></div>
+          ${p.checkout_time ? `<div style="font-size:11px;color:#666;margin-bottom:2px">Check-out: <strong>${p.checkout_time}</strong></div>` : ''}
           <div style="font-size:10px;color:#999;margin-bottom:6px">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div>
           <a href="${mapsUrl}" target="_blank" rel="noopener"
              style="display:inline-block;font-size:11px;color:#fff;background:#1D9E75;padding:3px 10px;border-radius:4px;text-decoration:none">
