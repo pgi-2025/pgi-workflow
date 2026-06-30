@@ -1345,6 +1345,11 @@ const ROLE_LABELS = {
 function roleLabel(role) { return ROLE_LABELS[role] || (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Team Member'); }
 function escapeHTML(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+function isAutoTask(t) {
+  return (t.id && (t.id.startsWith('auto_') || t.id.startsWith('dt_')))
+      || (t.msg && t.msg.startsWith('[Auto Task'));
+}
+
 function getEmployees()   { return ALL_USERS.filter(u => u.role === 'employee' || u.role === 'founder_assistant'); }
 function getInterns()     { return ALL_USERS.filter(u => u.role === 'intern'); }
 function getTrainers()    { return ALL_USERS.filter(u => u.role === 'trainer'); }
@@ -1541,9 +1546,10 @@ function startPolling() {
   if (pollingTimer) clearInterval(pollingTimer);
   pollingTimer = setInterval(async () => {
     if (!API_ONLINE || !currentUser) return;
-    await Promise.all([loadTasks(), loadNotifications(), loadMessages(currentChannel)]);
+    await Promise.all([loadTasks(), loadUsers(), loadNotifications(), loadMessages(currentChannel)]);
     if (document.getElementById('panel-attendance').classList.contains('active')) renderAttendance();
     if (document.getElementById('panel-messages').classList.contains('active'))   renderMessages();
+    if (document.getElementById('panel-teams').classList.contains('active') && !currentMemberView && !currentTeamView) renderTeams();
   }, 30000);
 }
 
@@ -2283,8 +2289,7 @@ function renderDashboard() {
         </div>
       </div>
       <div class="section-header" style="margin-bottom:16px"><div class="section-title">Task Board</div><span class="badge badge-gray">${TASKS.length} total</span></div>
-      ${TASKS.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks assigned yet.</p></div>':renderKanban(TASKS)}`;
-
+${(() => { const vbTasks = TASKS.filter(t => !isAutoTask(t)); return vbTasks.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks assigned yet.</p></div>':renderKanban(vbTasks); })()}`;
     // Load async stats (project counts, interns, employees)
     api('GET', '/dashboard-stats').then(stats => {
       if (!stats) return;
@@ -2353,8 +2358,8 @@ function renderDashboard() {
       if (!a.daily_key && b.daily_key) return  1;
       return 0;
     });
-    sec.innerHTML = `<div class="section-header" style="margin-bottom:10px"><div class="section-title">My Tasks</div></div><div class="tasks-list">${sorted.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>':sorted.map(taskCardHTML).join('')}</div>`;
-  }
+const vbSorted = sorted.filter(t => !isAutoTask(t));
+sec.innerHTML = `<div class="section-header" style="margin-bottom:10px"><div class="section-title">My Tasks</div></div><div class="tasks-list">${vbSorted.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>':vbSorted.map(taskCardHTML).join('')}</div>`;  }
 }
 
 function renderMyTasks() {
@@ -3889,6 +3894,7 @@ const euRole = document.getElementById('eu-role').value;
     const idx = ALL_USERS.findIndex(u => u.id === _editUserId);
     if (idx !== -1) ALL_USERS[idx] = { ...ALL_USERS[idx], ...res.user };
 
+    await loadUsers(); // force-sync full list so everyone's photo cache is current
     closeEditUserModal();
     renderUsersList();
     populateMemberSelect();
