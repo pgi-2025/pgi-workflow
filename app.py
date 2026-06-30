@@ -724,24 +724,11 @@ def upload_profile_photo(user_id):
     if file_size > MAX_SIZE_BYTES:
         return jsonify({"error": "File too large. Maximum allowed size is 5 MB"}), 400
 
-    unique_name   = f"{user_id}_{uuid.uuid4().hex[:10]}.{ext}"
-    safe_filename = secure_filename(unique_name)
+    mime_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+    photo_bytes = photo.read()
+    b64_data = base64.b64encode(photo_bytes).decode("utf-8")
+    photo_url = f"data:{mime_map.get(ext, 'image/jpeg')};base64,{b64_data}"
 
-    upload_dir = os.path.join(os.path.dirname(__file__), "uploads", "profile_photos")
-    os.makedirs(upload_dir, exist_ok=True)
-    save_path = os.path.join(upload_dir, safe_filename)
-    photo.save(save_path)
-
-    if user.profile_photo:
-        old_name = user.profile_photo.rsplit("/", 1)[-1]
-        old_path = os.path.join(upload_dir, secure_filename(old_name))
-        if os.path.isfile(old_path) and old_path != save_path:
-            try:
-                os.remove(old_path)
-            except Exception as e:
-                print(f"[WARN] Could not remove old profile photo: {e}")
-
-    photo_url = f"/api/profile-photo/{safe_filename}"
     user.profile_photo = photo_url
     db.session.commit()
 
