@@ -176,6 +176,17 @@ class Attendance(db.Model):
     checkout_latitude  = db.Column(db.Float)
     checkout_longitude = db.Column(db.Float)
 
+class LeaveRequest(db.Model):
+    __tablename__ = "leave_requests"
+    id           = db.Column(db.Integer, primary_key=True)
+    userId       = db.Column(db.String(100), nullable=False)
+    date         = db.Column(db.String(20), nullable=False)   # YYYY-MM-DD (single day leave)
+    reason       = db.Column(db.Text)
+    status       = db.Column(db.String(20), default="pending")  # pending | approved | rejected
+    requested_at = db.Column(db.String(100))
+    decided_at   = db.Column(db.String(100))
+    decided_by   = db.Column(db.String(100))
+
 
 class MorningMessage(db.Model):
     __tablename__ = "morning_messages"
@@ -1359,7 +1370,7 @@ def get_present_days(user_id, start_date, end_date):
         return 0
     rows = Attendance.query.filter(
         Attendance.userId == user_id,
-        Attendance.status.in_(["present", "completed"]),
+        Attendance.status.in_(["present", "completed", "leave"]),
         Attendance.date >= start_date.isoformat(),
         Attendance.date <= end_date.isoformat(),
     ).all()
@@ -1688,6 +1699,83 @@ def attendance_history():
         "checkout_latitude":  a.checkout_latitude,
         "checkout_longitude": a.checkout_longitude,
     } for a in records])
+
+# ─────────────────────────────────────────────
+# LEAVE REQUESTS
+# ─────────────────────────────────────────────
+
+@app.route("/api/leave-requests", methods=["GET"])
+@jwt_required()
+def get_leave_requests():
+    caller = db.session.get(User, get_jwt_identity())
+    if is_founder_like(caller):
+        rows = LeaveRequest.query.order_by(LeaveRequest.id.desc()).all()
+    else:
+        rows = LeaveRequest.query.filter_by(userId=caller.id).order_by(LeaveRequest.id.desc()).all()
+    return jsonify([{
+        "id": r.id, "userId": r.userId, "date": r.date, "reason": r.reason,
+        "status": r.status, "requested_at": r.requested_at,
+        "decided_at": r.decided_at, "decided_by": r.decided_by,
+    } for r in rows])
+
+
+@app.route("/api/leave-requests", methods=["POST"])
+@jwt_required()
+def create_leave_request():
+    uid  = get_jwt_identity()
+    data = request.get_json() or {}
+    date = (data.get("date") or "").strip()
+    if not date:
+        return jsonify({"error": "date is required"}), 400
+    lr = LeaveRequest(
+        userId=uid, date=date,
+        reason=(data.get("reason") or "").strip(),
+        status="pending",
+        requested_at=now_ist().strftime("%b %d, %Y %I:%M %p")
+    )
+    db.session.add(lr)
+    db.session.commit()
+    for f in User.query.filter(User.role.in_(["founder", "founder_assistant"])).all():
+        make_notif(userId=f.id, ntype="leave", title="📝 Leave Request",
+                   body=f"{db.session.get(User, uid).name} requested leave for {date}")
+    db.session.commit()
+    return jsonify({"success": True, "id": lr.id})
+
+
+@app.route("/api/leave-requests/<int:lid>/decision", methods=["POST"])
+@jwt_required()
+def decide_leave_request(lid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Only founder can approve/reject leave"}), 403
+
+    lr = db.session.get(LeaveRequest, lid)
+    if not lr:
+        return jsonify({"error": "Leave request not found"}), 404
+
+    action = (request.get_json() or {}).get("action")
+    if action not in ("approve", "reject"):
+        return jsonify({"error": "action must be 'approve' or 'reject'"}), 400
+
+    lr.status     = "approved" if action == "approve" else "rejected"
+    lr.decided_at = now_ist().strftime("%b %d, %Y %I:%M %p")
+    lr.decided_by = caller.name
+
+    if action == "approve":
+        att = Attendance.query.filter_by(userId=lr.userId, date=lr.date).first()
+        if att:
+            att.status = "leave"
+        else:
+            att = Attendance(userId=lr.userId, status="leave", date=lr.date)
+            db.session.add(att)
+
+    make_notif(
+        userId=lr.userId, ntype="leave",
+        title="Leave " + ("Approved ✅" if action == "approve" else "Rejected ❌"),
+        body=f"Your leave for {lr.date} was {lr.status} by {caller.name}."
+    )
+    db.session.commit()
+    return jsonify({"success": True, "status": lr.status})
 
 
 # ─────────────────────────────────────────────
