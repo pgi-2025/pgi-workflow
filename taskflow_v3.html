@@ -495,9 +495,11 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .founder-att-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}
 .founder-att-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;display:flex;align-items:center;gap:10px}
 .founder-att-card.present-card{border-color:rgba(34,197,94,0.25);background:rgba(34,197,94,0.03)}
+.founder-att-card.leave-card{border-color:rgba(56,189,248,0.3);background:rgba(56,189,248,0.04)}
 .founder-att-card.absent-card{border-color:rgba(239,68,68,0.2);background:rgba(239,68,68,0.02)}
 .att-status-pill{padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.4px;margin-left:auto;white-space:nowrap}
 .att-present-pill{background:rgba(34,197,94,0.15);color:var(--green);border:1px solid rgba(34,197,94,0.3)}
+.att-leave-pill{background:rgba(56,189,248,0.15);color:#1565C0;border:1px solid rgba(56,189,248,0.3)}
 .att-absent-pill{background:rgba(239,68,68,0.12);color:#F4856F;border:1px solid rgba(239,68,68,0.25)}
 .att-summary-row{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap}
 .att-sum-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 18px;flex:1;min-width:80px;text-align:center}
@@ -2388,8 +2390,8 @@ function renderMyTasks() {
 //  - no record on a past/today working day -> 'A'  (failed to mark = absent)
 function classifyAttendanceCell(dateStr, status) {
   if (status === 'present' || status === 'completed') return 'P';
+  if (status === 'leave') return 'L';
   if (status === 'absent')  return 'A';
-
   const todayIso = new Date().toISOString().split('T')[0];
   if (dateStr > todayIso) return '-';
 
@@ -2404,7 +2406,8 @@ async function renderAttendance() {
   if (isFounderLike(currentUser)) {
     const all    = getNonFounders();
     const pCount = all.filter(u => ['present','completed'].includes(ATTENDANCE[u.id]?.status)).length;
-    const aCount = all.length - pCount;
+    const lCount = all.filter(u => ATTENDANCE[u.id]?.status === 'leave').length;
+    const aCount = all.length - pCount - lCount;
     const emps   = getEmployees(), interns = getInterns(), trs = getTrainers();
 
     // Founder Assistant is also a tracked employee — show their own personal
@@ -2480,6 +2483,7 @@ async function renderAttendance() {
       const dateCells = allDates.map(d => {
         const cell = classifyAttendanceCell(d, days[d]);
         if (cell === 'P') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
+        if (cell === 'L') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(56,189,248,0.18);color:#1565C0;font-size:10px;font-weight:700">L</span></td>`;
         if (cell === 'A') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
         return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:10px">—</span></td>`;
       }).join('');
@@ -2514,6 +2518,7 @@ async function renderAttendance() {
 
     view.innerHTML = `
       ${selfToggleHTML}
+      <div id="leave-approval-section" style="margin-bottom:24px"></div>
       <div class="section-header" style="margin-bottom:20px">
         <div class="section-title">Attendance Overview</div>
         <div style="font-size:12px;color:var(--text3)">${new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
@@ -2521,6 +2526,7 @@ async function renderAttendance() {
 
       <div class="att-summary-row">
         <div class="att-sum-card"><div class="att-sum-num" style="color:var(--green)">${pCount}</div><div class="att-sum-lbl">Present Today</div></div>
+        <div class="att-sum-card"><div class="att-sum-num" style="color:#1565C0">${lCount}</div><div class="att-sum-lbl">On Leave Today</div></div>
         <div class="att-sum-card"><div class="att-sum-num" style="color:var(--red)">${aCount}</div><div class="att-sum-lbl">Absent Today</div></div>
         <div class="att-sum-card"><div class="att-sum-num">${all.length}</div><div class="att-sum-lbl">Total Staff</div></div>
       </div>
@@ -2572,6 +2578,7 @@ async function renderAttendance() {
 
         <div style="display:flex;gap:16px;padding:10px 18px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);align-items:center;flex-wrap:wrap">
           <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:9px;font-weight:700;margin-right:4px">P</span>Present</span>
+          <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(56,189,248,0.18);color:#1565C0;font-size:9px;font-weight:700;margin-right:4px">L</span>Approved Leave</span>
           <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:9px;font-weight:700;margin-right:4px">A</span>Absent</span>
           <span><span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--surface3);color:var(--text3);font-size:9px;margin-right:4px">—</span>Weekend / Future date</span>
         </div>
@@ -2581,6 +2588,8 @@ async function renderAttendance() {
           <p>Cumulative report will appear here once attendance has been marked for at least one day.</p>
         </div>`}
       </div>`;
+
+      renderLeaveApprovals();
 
   } else {
     const attObj2 = ATTENDANCE[currentUser.id] || {};
@@ -2606,6 +2615,17 @@ async function renderAttendance() {
         <div class="att-user-info"><div class="att-user-name">${currentUser.name}</div><div class="att-user-role">${currentUser.role}</div></div>
         ${attendanceCheckInOutHTML(currentUser.id, attObj2)}
       </div>
+
+      <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="font-size:13px;font-weight:600;color:var(--gold2);margin-bottom:10px">📝 Request Leave</div>
+        <div class="form-row">
+          <div class="form-field" style="margin-bottom:0"><label>Date</label><input type="date" id="lr-date"></div>
+          <div class="form-field" style="margin-bottom:0"><label>Reason</label><input type="text" id="lr-reason" placeholder="e.g. Family function"></div>
+        </div>
+        <button class="btn-sm btn-gold" style="margin-top:12px" onclick="submitLeaveRequest()">Submit Leave Request</button>
+        <div id="my-leave-list" style="margin-top:16px"></div>
+      </div>
+
       <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px;text-align:center">
         <div style="font-size:40px;margin-bottom:10px">${statusIcon2}</div>
         <div style="font-size:16px;font-weight:600;color:${statusColor2}">${statusText2}</div>
@@ -2626,6 +2646,8 @@ async function renderAttendance() {
         </div>
       </div>
     </div>`;
+
+    if (!isFounderLike(currentUser)) loadMyLeaveRequests();
   }
   updateSidebarAttendance();
 }
@@ -2655,8 +2677,8 @@ const rows = data.map(e => {
     const ciTime  = e.checkin_time  ? formatAttendanceTime(e.checkin_time)  : '--';
     const coTime  = e.checkout_time ? formatAttendanceTime(e.checkout_time) : '--';
     const st      = e.status || 'absent';
-    const stColor = st === 'completed' ? 'var(--green)' : st === 'present' ? '#3B82F6' : 'var(--red)';
-    const stLabel = st === 'completed' ? 'COMPLETED' : st === 'present' ? 'PRESENT' : st.toUpperCase();
+    const stColor = st === 'completed' ? 'var(--green)' : st === 'present' ? '#3B82F6' : st === 'leave' ? '#1565C0' : 'var(--red)';
+    const stLabel = st === 'completed' ? 'COMPLETED' : st === 'present' ? 'PRESENT' : st === 'leave' ? 'ON LEAVE' : st.toUpperCase();
     const u       = ALL_USERS.find(u => u.id === e.userId) || e;
     const c       = ac(e.userId);
 
@@ -2951,12 +2973,13 @@ function founderAttCard(u) {
     const attObj    = ATTENDANCE[u.id] || {};
     const status    = attObj.status || "absent";
     const isPresent = status === "present" || status === "completed";
+    const isLeave   = status === "leave";
 
     const checkIn  = formatAttendanceTime(attObj.checkin_time);
     const checkOut = formatAttendanceTime(attObj.checkout_time);
     const hours    = attObj.worked_hours != null ? attObj.worked_hours + "h" : "--";
 
-    const pillLabel = status === "completed" ? "COMPLETED" : status === "present" ? "PRESENT" : "ABSENT";
+    const pillLabel = status === "completed" ? "COMPLETED" : status === "present" ? "PRESENT" : isLeave ? "ON LEAVE" : "ABSENT";
 
     const ciLat = attObj.checkin_latitude, ciLng = attObj.checkin_longitude;
     const coLat = attObj.checkout_latitude, coLng = attObj.checkout_longitude;
@@ -2978,7 +3001,7 @@ function founderAttCard(u) {
         </div>` : '';
 
     return `
-    <div class="founder-att-card ${isPresent ? "present-card" : "absent-card"}">
+    <div class="founder-att-card ${isPresent ? "present-card" : isLeave ? "leave-card" : "absent-card"}">
 
         ${userAvatarHTML(u, 28, 10)}
 
@@ -3004,6 +3027,8 @@ function founderAttCard(u) {
         <span class="att-status-pill ${
             isPresent
                 ? "att-present-pill"
+                : isLeave
+                ? "att-leave-pill"
                 : "att-absent-pill"
         }">
 
@@ -3013,6 +3038,40 @@ function founderAttCard(u) {
 
     </div>
     `;
+}
+
+async function renderLeaveApprovals() {
+  const el = document.getElementById('leave-approval-section');
+  if (!el) return;
+  const rows = (await api('GET', '/leave-requests') || []).filter(r => r.status === 'pending');
+  if (!rows.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `
+    <div class="section-header" style="margin-bottom:12px"><div class="section-title">Pending Leave Requests</div><span class="badge badge-gold">${rows.length}</span></div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      ${rows.map(r => `
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px">
+            <div style="font-size:13px;font-weight:600">${escapeHTML(uname(r.userId))}</div>
+            <div style="font-size:11px;color:var(--text3)">${r.date}${r.reason ? ' — ' + escapeHTML(r.reason) : ''}</div>
+          </div>
+          <button class="btn-tiny confirm" onclick="decideLeave(${r.id},'approve')">✓ Approve</button>
+          <button class="btn-tiny reject" onclick="decideLeave(${r.id},'reject')">✕ Reject</button>
+        </div>`).join('')}
+    </div>`;
+}
+
+async function decideLeave(id, action) {
+  const res = await api('POST', `/leave-requests/${id}/decision`, { action });
+  if (res?.success) {
+    showToast(action === 'approve' ? '✓ Leave approved' : 'Leave rejected');
+    await loadAttendance();
+    renderAttendance();
+  } else {
+    showToast(res?.error || 'Failed to update leave request');
+  }
 }
 
 async function toggleAttendance(uid) {
@@ -3089,6 +3148,33 @@ async function checkOutAttendance(uid) {
     showToast(res?.error || 'Could not check out');
   }
   renderAttendance();
+}
+
+async function submitLeaveRequest() {
+  const date   = document.getElementById('lr-date')?.value;
+  const reason = document.getElementById('lr-reason')?.value.trim();
+  if (!date) { showToast('⚠ Please select a date'); return; }
+  const res = await api('POST', '/leave-requests', { date, reason });
+  if (res?.success) {
+    showToast('✓ Leave request submitted');
+    document.getElementById('lr-reason').value = '';
+    loadMyLeaveRequests();
+  } else {
+    showToast(res?.error || 'Failed to submit leave request');
+  }
+}
+
+async function loadMyLeaveRequests() {
+  const el = document.getElementById('my-leave-list');
+  if (!el) return;
+  const rows = await api('GET', '/leave-requests') || [];
+  if (!rows.length) { el.innerHTML = '<div style="font-size:11px;color:var(--text3)">No leave requests yet</div>'; return; }
+  const statusColor = s => s === 'approved' ? 'var(--green)' : s === 'rejected' ? 'var(--red)' : '#FBBF24';
+  el.innerHTML = rows.map(r => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);font-size:12px">
+      <span>${r.date}${r.reason ? ' — ' + escapeHTML(r.reason) : ''}</span>
+      <span style="color:${statusColor(r.status)};font-weight:600;text-transform:capitalize">${r.status}</span>
+    </div>`).join('');
 }
 
 async function updateSidebarAttendance() {
