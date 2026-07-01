@@ -1699,7 +1699,37 @@ function priBadge(p) {
 // ═══════════════════════════════════════════════════════════
 function isTrainer() { return currentUser && currentUser.role === 'trainer'; }
 
+// Detects auto-generated daily reminder tasks, using whichever signal the
+// backend already provides (is_auto flag, assignedBy === "SYSTEM"/"system",
+// task.type === 'daily'), falling back to the existing id/msg conventions
+// already used elsewhere in this file (dt_, daily9_, [Auto Task, [Daily Task Template).
+function isDailyReminderTask(t) {
+  return t.is_auto === true
+      || t.assignedBy === 'SYSTEM'
+      || t.assignedBy === 'system'
+      || t.type === 'daily'
+      || (t.id && (t.id.startsWith('daily9_') || t.id.startsWith('dt_')))
+      || (t.msg && (t.msg.startsWith('[Daily Task Template') || t.msg.startsWith('[Auto Task')));
+}
+
+// Minimal card for daily reminder tasks: title, description, due, badge only.
+// No Start / Submit Proof / Reject / Approve / Completion % — matches the
+// same .tc card structure/classes used by normal task cards.
+function dailyReminderCardHTML(t) {
+  return `<div class="tc fade">
+    <div class="tc-accent" style="background:#FBBF24"></div>
+    <div class="tc-body">
+      <div class="tc-top">
+        <div style="flex:1;min-width:0"><div class="tc-title">${escapeHTML(t.title)}</div><div class="tc-desc">${escapeHTML(t.desc||'')}</div></div>
+        <div style="flex-shrink:0"><span class="badge" style="background:rgba(251,191,36,0.15);color:#FBBF24;border:1px solid rgba(251,191,36,0.35)">⏰ DAILY REMINDER</span></div>
+      </div>
+      <div class="tc-meta"><span class="tc-meta-item">📅 ${t.due || 'TBD'}</span></div>
+    </div>
+  </div>`;
+}
+
 function taskCardHTML(t) {
+  if (isDailyReminderTask(t)) return dailyReminderCardHTML(t);
   const isFounder = isFounderLike(currentUser);
   const isMyTask  = t.assignedTo === currentUser.id;
   const accent    = STATUS_ACCENT[t.status] || '#5F7A6A';
@@ -2427,6 +2457,16 @@ async function renderAttendance() {
           <span style="font-size:11px;color:var(--text3)">Check In: <strong style="color:var(--green)">${selfCiTime}</strong></span>
           <span style="font-size:11px;color:var(--text3)">Check Out: <strong style="color:${selfCoTime!=='--'?'var(--red)':'var(--text3)'}">${selfCoTime}</strong></span>
         </div>` : ''}
+
+        <div style="margin-top:16px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+          <div style="font-size:13px;font-weight:600;color:var(--gold2);margin-bottom:10px">📝 Request Leave</div>
+          <div class="form-row">
+            <div class="form-field" style="margin-bottom:0"><label>Date</label><input type="date" id="lr-date"></div>
+            <div class="form-field" style="margin-bottom:0"><label>Reason</label><input type="text" id="lr-reason" placeholder="e.g. Family function"></div>
+          </div>
+          <button class="btn-sm btn-gold" style="margin-top:12px" onclick="submitLeaveRequest()">Submit Leave Request</button>
+          <div id="my-leave-list" style="margin-top:16px"></div>
+        </div>
       </div>
       <div class="divider"></div>` : '';
 
@@ -2590,6 +2630,7 @@ async function renderAttendance() {
       </div>`;
 
       renderLeaveApprovals();
+      if (currentUser.role === 'founder_assistant') loadMyLeaveRequests();
 
   } else {
     const attObj2 = ATTENDANCE[currentUser.id] || {};
