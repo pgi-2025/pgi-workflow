@@ -2081,7 +2081,7 @@ function kanbanCardHTML(t) {
       ${t.status==='submitted'?'<span class="badge badge-blue" style="font-size:9px;padding:2px 7px">Proof Submitted</span>':''}
       ${t.status==='rejected' ?'<span class="badge badge-red"  style="font-size:9px;padding:2px 7px">Rejected</span>':''}
       ${t.daily_key?'<span style="font-size:9px;color:#FBBF24">⚡ Daily</span>':''}
-      <button class="btn-tiny danger" style="font-size:9px;padding:2px 7px" onclick="event.stopPropagation();deleteTask('${t.id}')" title="Delete this task">🗑</button>
+      <button class="btn-tiny danger" style="font-size:9px;padding:2px 7px" onclick="event.stopPropagation();deleteTask('${t.id}')" title="Delete this task">Delete</button>
       <div class="kc-assignee"><div class="kc-avatar" style="background:linear-gradient(135deg,${aColor}99,${aColor})">${initials}</div><span class="kc-name">${uname(t.assignedTo).split(' ')[0]}</span></div>
     </div>
     ${t.due?`<div style="margin-top:6px"><span class="kc-due">📅 ${t.due}</span></div>`:''}
