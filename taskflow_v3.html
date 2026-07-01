@@ -1725,6 +1725,10 @@ function dailyReminderCardHTML(t) {
       </div>
       <div class="tc-meta"><span class="tc-meta-item">📅 ${t.due || 'TBD'}</span></div>
     </div>
+    <div class="tc-footer">
+      <div style="font-size:11px;color:var(--text3)"></div>
+      <div class="tc-actions"><button class="btn-tiny danger" onclick="deleteTask('${t.id}')" title="Delete this task">🗑 Delete</button></div>
+    </div>
   </div>`;
 }
 
@@ -1798,6 +1802,8 @@ if (isMyTask) {
   if (isFounder && t.status === 'submitted' && !isMyTask)
     actions = `<button class="btn-tiny confirm" onclick="verifyTask('${t.id}','approve')">✓ Complete</button><button class="btn-tiny reject" onclick="openRejectModal('${t.id}')">✕ Reject</button>`;
 
+  actions += `<button class="btn-tiny danger" onclick="deleteTask('${t.id}')" title="Delete this task">🗑 Delete</button>`;
+
   // Work completion percentage bar (always visible)
   const wcp = t.work_completion_percentage || 0;
   const wcpColor = wcp >= 100 ? '#22C55E' : wcp >= 75 ? '#4ADE80' : wcp >= 50 ? '#38BDF8' : wcp >= 25 ? '#FBBF24' : '#5F7A6A';
@@ -1849,6 +1855,18 @@ async function resetCompletedTasks() {
   }
 }
 
+async function deleteTask(taskId) {
+  if (!confirm('Delete this task permanently?')) return;
+  const res = await api('DELETE', `/tasks/${taskId}`);
+  if (!res || res.__error || res.error) {
+    showToast(res?.message || res?.error || 'Unable to delete task');
+    return;
+  }
+  TASKS = TASKS.filter(t => t.id !== taskId);
+  showToast('🗑 Task deleted');
+  await loadTasks();
+  renderDashboard(); renderMyTasks(); renderVerify(); updateStats();
+}
 // ═══════════════════════════════════════════════════════════
 // GOOGLE FORM TASK FLOW
 // ═══════════════════════════════════════════════════════════
@@ -2063,6 +2081,7 @@ function kanbanCardHTML(t) {
       ${t.status==='submitted'?'<span class="badge badge-blue" style="font-size:9px;padding:2px 7px">Proof Submitted</span>':''}
       ${t.status==='rejected' ?'<span class="badge badge-red"  style="font-size:9px;padding:2px 7px">Rejected</span>':''}
       ${t.daily_key?'<span style="font-size:9px;color:#FBBF24">⚡ Daily</span>':''}
+      <button class="btn-tiny danger" style="font-size:9px;padding:2px 7px" onclick="event.stopPropagation();deleteTask('${t.id}')" title="Delete this task">🗑</button>
       <div class="kc-assignee"><div class="kc-avatar" style="background:linear-gradient(135deg,${aColor}99,${aColor})">${initials}</div><span class="kc-name">${uname(t.assignedTo).split(' ')[0]}</span></div>
     </div>
     ${t.due?`<div style="margin-top:6px"><span class="kc-due">📅 ${t.due}</span></div>`:''}
