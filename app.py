@@ -374,6 +374,80 @@ with app.app_context():
             except Exception:
                 conn.rollback()
 
+        # Standalone migration: task_templates.target_id must allow NULL
+        # (required for Target Type = "all", which has no single team/user).
+        try:
+            conn.execute(text("""
+                ALTER TABLE task_templates
+                ALTER COLUMN target_id DROP NOT NULL
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        for sql in migrations:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        # Standalone migration: task_templates.target_id must allow NULL
+        # (required for Target Type = "all", which has no single team/user).
+        try:
+            conn.execute(text("""
+                ALTER TABLE task_templates
+                ALTER COLUMN target_id DROP NOT NULL
+            """))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
+        # Standalone migration (SQLite): task_templates.target_id must allow
+        # NULL. SQLite cannot ALTER COLUMN to drop NOT NULL, so the table is
+        # safely recreated only if the current schema still has it NOT NULL.
+        try:
+            pragma_rows = conn.execute(text("PRAGMA table_info(task_templates)")).fetchall()
+            target_id_col = next((row for row in pragma_rows if row[1] == "target_id"), None)
+            # PRAGMA table_info columns: (cid, name, type, notnull, dflt_value, pk)
+            if target_id_col is not None and target_id_col[3] == 1:
+                conn.execute(text("ALTER TABLE task_templates RENAME TO task_templates_old"))
+                conn.execute(text("""
+                    CREATE TABLE task_templates (
+                        id          INTEGER PRIMARY KEY,
+                        title       VARCHAR(300) NOT NULL,
+                        description TEXT,
+                        priority    VARCHAR(50) DEFAULT 'medium',
+                        frequency   VARCHAR(20) NOT NULL,
+                        target_type VARCHAR(10) NOT NULL,
+                        target_id   VARCHAR(100),
+                        due_time    VARCHAR(10),
+                        active      BOOLEAN DEFAULT 1,
+                        created_by  VARCHAR(100),
+                        created_at  VARCHAR(100),
+                        last_run    VARCHAR(20)
+                    )
+                """))
+                conn.execute(text("""
+                    INSERT INTO task_templates
+                    (id,title,description,priority,frequency,target_type,target_id,due_time,active,created_by,created_at,last_run)
+                    SELECT
+                    id,title,description,priority,frequency,target_type,target_id,due_time,active,created_by,created_at,last_run
+                    FROM task_templates_old
+                """))
+                conn.execute(text("DROP TABLE task_templates_old"))
+                conn.commit()
+        except Exception:
+            conn.rollback()
+
+        # Backfill: any user row created before the 'active' column existed
+        # should default to active rather than NULL.
+        try:
+            conn.execute(text("UPDATE users SET active = TRUE WHERE active IS NULL"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+
         # Backfill: any user row created before the 'active' column existed
         # should default to active rather than NULL.
         try:
@@ -2318,7 +2392,11 @@ def create_task_template():
         priority    = data.get("priority", "medium"),
         frequency   = frequency,
         target_type = target_type,
-        target_id   = target_id if target_type != "all" else None,
+        target_id   = (
+            data.get("target_id")
+            if data.get("target_type") != "all"
+            else None
+        ),
         due_time    = (data.get("due_time") or "").strip() or None,
         active      = bool(data.get("active", True)),
         created_by  = caller.id,
