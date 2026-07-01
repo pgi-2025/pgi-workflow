@@ -124,7 +124,9 @@ class Task(db.Model):
     proof_link       = db.Column(db.Text)
     rejection_reason = db.Column(db.Text)
     work_completion_percentage = db.Column(db.Float, default=0.0)
-
+    template_id       = db.Column(db.String(100), nullable=True)
+    generated_date    = db.Column(db.String(20), nullable=True)
+    is_auto           = db.Column(db.Boolean, nullable=True, default=False)
 
 class Message(db.Model):
     __tablename__ = "messages"
@@ -361,7 +363,9 @@ with app.app_context():
             # NEW: active/disabled flag for users (controls WhatsApp quote delivery)
             "ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT TRUE",
             "ALTER TABLE task_templates ADD COLUMN due_time VARCHAR(10)",
-            # GEO TAGGING — check-in / check-out coordinates
+            "ALTER TABLE tasks ADD COLUMN template_id VARCHAR(100)",
+            "ALTER TABLE tasks ADD COLUMN generated_date VARCHAR(20)",
+            "ALTER TABLE tasks ADD COLUMN is_auto BOOLEAN DEFAULT FALSE",           # GEO TAGGING — check-in / check-out coordinates
             "ALTER TABLE attendance ADD COLUMN checkin_latitude  FLOAT",
             "ALTER TABLE attendance ADD COLUMN checkin_longitude FLOAT",
             "ALTER TABLE attendance ADD COLUMN checkout_latitude  FLOAT",
@@ -2446,6 +2450,10 @@ def delete_task_template(tid):
     tpl = db.session.get(TaskTemplate, tid)
     if not tpl:
         return jsonify({"error": "Not found"}), 404
+    Task.query.filter(
+        Task.template_id == str(tpl.id),
+        Task.is_auto == True,
+    ).delete(synchronize_session=False)
     db.session.delete(tpl)
     db.session.commit()
     return jsonify({"success": True})
@@ -2509,6 +2517,16 @@ def dispatch_single_template(tid):
         dedup_key = f"auto_{tpl.id}_{user.id}_{today}"
         if Task.query.filter_by(id=dedup_key).first():
             continue
+
+        # Remove yesterday's (or any older) unfinished reminder from this
+        # template for this user, so only today's reminder ever exists.
+        Task.query.filter(
+            Task.template_id == str(tpl.id),
+            Task.assignedTo == user.id,
+            Task.is_auto == True,
+            Task.status != "completed",
+        ).delete(synchronize_session=False)
+
         task = Task(
             id         = dedup_key,
             title      = tpl.title,
@@ -2521,6 +2539,9 @@ def dispatch_single_template(tid):
             msg        = f"[Auto Task — {tpl.frequency.capitalize()}]",
             createdAt  = now_iso_v,
             work_completion_percentage = 0.0,
+            template_id = tpl.id,
+            generated_date = today,
+            is_auto = True,
         )
         db.session.add(task)
         make_notif(
@@ -2580,6 +2601,15 @@ def dispatch_task_templates():
                 if exists:
                     continue
 
+                # Remove yesterday's (or any older) unfinished reminder from
+                # this template for this user, so only today's reminder exists.
+                Task.query.filter(
+                    Task.template_id == str(tpl.id),
+                    Task.assignedTo == user.id,
+                    Task.is_auto == True,
+                    Task.status != "completed",
+                ).delete(synchronize_session=False)
+
                 task = Task(
                     id         = dedup_key,
                     title      = tpl.title,
@@ -2592,6 +2622,9 @@ def dispatch_task_templates():
                     msg        = f"[Auto Task — {tpl.frequency.capitalize()}]",
                     createdAt  = now_iso_v,
                     work_completion_percentage = 0.0,
+                    template_id = tpl.id,
+                    generated_date = today,
+                    is_auto = True,
                 )
                 db.session.add(task)
                 make_notif(
@@ -2639,6 +2672,15 @@ def generate_daily_tasks():
                 if Task.query.filter_by(id=dedup_key).first():
                     continue
 
+                # Remove yesterday's (or any older) unfinished reminder from
+                # this template for this user, so only today's reminder exists.
+                Task.query.filter(
+                    Task.template_id == str(tpl.id),
+                    Task.assignedTo == user.id,
+                    Task.is_auto == True,
+                    Task.status != "completed",
+                ).delete(synchronize_session=False)
+
                 task = Task(
                     id         = dedup_key,
                     title      = tpl.title,
@@ -2651,6 +2693,9 @@ def generate_daily_tasks():
                     msg        = "[Daily Task Template — 9AM]",
                     createdAt  = now_iso_v,
                     work_completion_percentage = 0.0,
+                    template_id = tpl.id,
+                    generated_date = today,
+                    is_auto = True,
                 )
                 db.session.add(task)
 
