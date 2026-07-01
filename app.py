@@ -1028,11 +1028,13 @@ def verify_task(task_id):
 @jwt_required()
 def delete_task(task_id):
     user = db.session.get(User, get_jwt_identity())
-    if not is_founder_like(user):
-        return jsonify({"error": "Only founder can delete tasks"}), 403
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
     task = db.session.get(Task, task_id)
     if not task:
         return jsonify({"error": "Task not found"}), 404
+    if not is_founder_like(user) and task.assignedTo != user.id:
+        return jsonify({"error": "Forbidden"}), 403
     db.session.delete(task)
     db.session.commit()
     return jsonify({"success": True})
