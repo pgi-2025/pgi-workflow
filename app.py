@@ -1708,7 +1708,7 @@ def attendance_history():
 @jwt_required()
 def get_leave_requests():
     caller = db.session.get(User, get_jwt_identity())
-    if is_founder_like(caller):
+    if caller.role == "founder":
         rows = LeaveRequest.query.order_by(LeaveRequest.id.desc()).all()
     else:
         rows = LeaveRequest.query.filter_by(userId=caller.id).order_by(LeaveRequest.id.desc()).all()
@@ -1777,6 +1777,21 @@ def decide_leave_request(lid):
     db.session.commit()
     return jsonify({"success": True, "status": lr.status})
 
+@app.route("/api/leave-requests/<int:lid>", methods=["DELETE"])
+@jwt_required()
+def cancel_leave_request(lid):
+    uid = get_jwt_identity()
+    caller = db.session.get(User, uid)
+    lr = db.session.get(LeaveRequest, lid)
+    if not lr:
+        return jsonify({"error": "Leave request not found"}), 404
+    if lr.userId != uid and not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    if lr.status != "pending":
+        return jsonify({"error": "Only pending leave requests can be cancelled"}), 400
+    db.session.delete(lr)
+    db.session.commit()
+    return jsonify({"success": True})
 
 # ─────────────────────────────────────────────
 # NOTIFICATIONS
@@ -2519,6 +2534,63 @@ def dispatch_task_templates():
             db.session.rollback()
             print(f"[AUTO TASK] Commit error: {exc}")
 
+def generate_daily_tasks():
+    """
+    Runs every day at 09:00 AM IST.
+    Loops through every active TaskTemplate with frequency == "daily".
+    For each one not yet processed today (last_run != today), creates a
+    Task per resolved target user with status/fields taken exactly from
+    the template, plus a "New Daily Reminder" notification, then marks
+    the template as processed for today (last_run = today) and commits.
+    Duplicate-safe: task id is deterministic per template+user+day.
+    """
+    with app.app_context():
+        today     = today_str()
+        now_iso_v = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+
+        templates = TaskTemplate.query.filter_by(active=True, frequency="daily").all()
+
+        for tpl in templates:
+            if tpl.last_run == today:
+                continue  # already generated today — prevents duplicate generation
+
+            target_users = resolve_template_target_users(tpl)
+
+            for user in target_users:
+                dedup_key = f"daily9_{tpl.id}_{user.id}_{today}"
+                if Task.query.filter_by(id=dedup_key).first():
+                    continue
+
+                task = Task(
+                    id         = dedup_key,
+                    title      = tpl.title,
+                    desc       = tpl.description or "",
+                    assignedTo = user.id,
+                    assignedBy = tpl.created_by or "system",
+                    status     = "pending",
+                    priority   = tpl.priority or "medium",
+                    due        = today,
+                    msg        = "[Daily Task Template — 9AM]",
+                    createdAt  = now_iso_v,
+                    work_completion_percentage = 0.0,
+                )
+                db.session.add(task)
+
+                make_notif(
+                    userId = user.id,
+                    ntype  = "task",
+                    title  = "New Daily Reminder",
+                    body   = f"Today's reminder:\n{tpl.title}"
+                )
+
+            tpl.last_run = today
+
+        try:
+            db.session.commit()
+            print(f"[DAILY TASK 9AM] Processed {len(templates)} daily template(s) for {today}")
+        except Exception as exc:
+            db.session.rollback()
+            print(f"[DAILY TASK 9AM] Commit error: {exc}")
 
 @app.route("/api/dashboard/goals", methods=["GET"])
 @jwt_required()
@@ -3559,11 +3631,12 @@ def assign_daily_tasks():
                 )
                 db.session.add(task)
 
+                # Automatically generated daily task — notify immediately after creation
                 make_notif(
                     userId = user.id,
                     ntype  = "task",
-                    title  = "📋 Daily Task Assigned",
-                    body   = f"Your daily task has been assigned: {tpl['title']}"
+                    title  = "New Daily Reminder",
+                    body   = f"Today's reminder: {tpl['title']}"
                 )
                 created += 1
 
@@ -3626,7 +3699,7 @@ if APSCHEDULER_AVAILABLE:
         misfire_grace_time=3600
     )
 
-    # Auto Task Templates dispatcher — 12:02 AM IST daily
+    # Auto Task Templates dispatcher — 12:02 AM IST daily (weekly/monthly templates)
     _scheduler.add_job(
         dispatch_task_templates,
         trigger="cron",
@@ -3637,11 +3710,23 @@ if APSCHEDULER_AVAILABLE:
         misfire_grace_time=3600
     )
 
+    # Daily Task Templates dispatcher — 09:00 AM IST every day (frequency == "daily")
+    _scheduler.add_job(
+        generate_daily_tasks,
+        trigger="cron",
+        hour=9,
+        minute=0,
+        id="daily_task_templates_9am_job",
+        replace_existing=True,
+        misfire_grace_time=3600
+    )
+
     _scheduler.start()
     print("[SCHEDULER] Auto daily quote: 12:00 AM IST (midnight) + 7:00 AM IST")
     print("[SCHEDULER] Birthday alerts:  08:00 AM IST")
     print("[SCHEDULER] Daily task assign: 12:01 AM IST")
     print("[SCHEDULER] Auto task templates: 12:02 AM IST")
+    print("[SCHEDULER] Daily task templates (9AM): 09:00 AM IST")
 
     # ── Restart recovery ────────────────────────────────────────
     # If the app restarts after midnight and the cron fire was missed
