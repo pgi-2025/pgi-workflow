@@ -5857,6 +5857,9 @@ async function deleteAutoTaskTemplate(id) {
     AUTO_TASK_TEMPLATES = AUTO_TASK_TEMPLATES.filter(t => t.id !== id);
     showToast('🗑 Template deleted');
     _buildAutoTasksUI(document.getElementById('panel-autotasks'));
+    await loadTasks();
+    renderMyTasks();
+    renderDashboard();
   }
 }
 
