@@ -1,3 +1,4 @@
+import requests
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from flask_jwt_extended import (
@@ -38,6 +39,66 @@ except ImportError:
     print("[WARN] APScheduler not installed — scheduled jobs will not run.")
 
 load_dotenv()
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip().strip('"').strip("'")
+GROQ_MODEL   = "llama-3.3-70b-versatile"   # confirmed current, supported Groq model
+GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"   # confirmed correct endpoint
+
+if not GROQ_API_KEY:
+    print("[GROQ][STARTUP] WARNING: GROQ_API_KEY is not set. AI assistant will be disabled.")
+else:
+    print(f"[GROQ][STARTUP] key_present=True key_len={len(GROQ_API_KEY)} "
+          f"key_prefix={GROQ_API_KEY[:8]} model={GROQ_MODEL}")
+
+
+def groq_chat(messages, tools=None):
+    """
+    Calls Groq's OpenAI-compatible chat completions endpoint.
+    Raises RuntimeError with Groq's actual error message on failure —
+    never lets a raw HTTPError/403 bubble up unexplained.
+    """
+    if not GROQ_API_KEY:
+        raise RuntimeError("Groq API key is missing or invalid.")
+
+    payload = {"model": GROQ_MODEL, "messages": messages, "temperature": 0.3}
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",   # exactly "Bearer <key>", no extra chars
+        "Content-Type": "application/json",
+    }
+
+    print(f"[GROQ] request → model={GROQ_MODEL} endpoint={GROQ_URL} "
+          f"key_len={len(GROQ_API_KEY)} key_prefix={GROQ_API_KEY[:8]}")
+
+    try:
+        resp = requests.post(GROQ_URL, json=payload, headers=headers, timeout=30)
+    except requests.exceptions.RequestException as e:
+        print(f"[GROQ] network error: {e}")
+        raise RuntimeError(f"Could not reach Groq API: {e}")
+
+    print(f"[GROQ] response ← status_code={resp.status_code}")
+
+    if resp.status_code != 200:
+        try:
+            err_body = resp.json()
+            err_msg  = err_body.get("error", {}).get("message", resp.text)
+        except ValueError:
+            err_msg = resp.text
+        print(f"[GROQ] error body: {err_msg}")
+
+        if resp.status_code in (401, 403):
+            raise RuntimeError("Groq API key is missing or invalid.")
+        elif resp.status_code == 404:
+            raise RuntimeError(f"Groq model not found or unavailable: {GROQ_MODEL}")
+        elif resp.status_code == 429:
+            raise RuntimeError("Groq API rate limit reached. Please try again shortly.")
+        else:
+            raise RuntimeError(f"Groq API error ({resp.status_code}): {err_msg}")
+
+    return resp.json()
 
 # ─────────────────────────────────────────────
 # TIMEZONE — single source of truth for all timestamps.
@@ -227,6 +288,15 @@ class Todo(db.Model):
     user_id    = db.Column(db.String(100), nullable=False, index=True)
     title      = db.Column(db.Text, nullable=False)
     completed  = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.String(100))
+
+
+class AIChatMessage(db.Model):
+    __tablename__ = "ai_chat_messages"
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.String(100), nullable=False, index=True)
+    role       = db.Column(db.String(20),  nullable=False)   # 'user' | 'assistant'
+    content    = db.Column(db.Text,        nullable=False)
     created_at = db.Column(db.String(100))
 
 
@@ -885,6 +955,62 @@ def get_tasks():
     tasks = Task.query.all() if is_founder_like(user) else Task.query.filter_by(assignedTo=uid).all()
     return jsonify([task_to_dict(t) for t in tasks])
 
+def create_task_record(assignee_id, title, desc, priority, due, msg, assigned_by_id, work_completion_percentage=0.0):
+    """Single source of truth for creating a Task + its notification.
+    Used by both POST /api/tasks and the AI assign_task tool — never duplicated."""
+    try:
+        wcp = max(0.0, min(100.0, float(work_completion_percentage or 0)))
+    except (TypeError, ValueError):
+        wcp = 0.0
+    task = Task(
+        id        = "t" + str(int(now_ist().timestamp() * 1000)),
+        title     = title,
+        desc      = desc,
+        assignedTo= assignee_id,
+        assignedBy= assigned_by_id,
+        status    = "pending",
+        priority  = priority or "medium",
+        due       = due or "TBD",
+        msg       = msg or "",
+        createdAt = now_ist().strftime("%b %d, %Y %I:%M %p"),
+        work_completion_percentage = wcp
+    )
+    db.session.add(task)
+    assigner = db.session.get(User, assigned_by_id)
+    make_notif(
+        userId=assignee_id, ntype="task",
+        title="New Task Assigned",
+        body='"' + task.title + '" was assigned to you by ' + (assigner.name if assigner else "the founder") + '. Due: ' + (task.due or "TBD")
+    )
+    return task
+
+
+def find_employee_matches(query):
+    """Case-insensitive lookup by full name, partial/first name, email, or initials.
+    Never matches founder accounts. Returns a list — 0, 1, or many matches."""
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    candidates = User.query.filter(User.role != "founder").all()
+
+    exact, partial = [], []
+    seen_ids = set()
+
+    for u in candidates:
+        name_l     = (u.name or "").lower()
+        email_l    = (u.email or "").lower()
+        initials_l = (u.initials or "").lower()
+        words      = name_l.split()
+
+        if name_l == q or email_l == q or (initials_l and initials_l == q):
+            if u.id not in seen_ids:
+                exact.append(u); seen_ids.add(u.id)
+        elif q in name_l or q in email_l or (words and q in words):
+            if u.id not in seen_ids:
+                partial.append(u); seen_ids.add(u.id)
+
+    return exact if exact else partial
+
 
 @app.route("/api/tasks", methods=["POST"])
 @jwt_required()
@@ -907,31 +1033,15 @@ def create_task():
         return jsonify({"error": "Selected team member not found."}), 404
 
     try:
-        wcp_raw = data.get("work_completion_percentage", 0)
-        try:
-            wcp = float(wcp_raw)
-        except (TypeError, ValueError):
-            wcp = 0.0
-        wcp = max(0.0, min(100.0, wcp))
-
-        task = Task(
-            id        = "t" + str(int(now_ist().timestamp() * 1000)),
-            title     = (data.get("title") or "").strip(),
-            desc      = (data.get("desc")  or "").strip(),
-            assignedTo= assignee_id,
-            assignedBy= uid,
-            status    = "pending",
-            priority  = data.get("priority", "medium"),
-            due       = data.get("due") or "TBD",
-            msg       = (data.get("msg") or "").strip(),
-            createdAt = now_ist().strftime("%b %d, %Y %I:%M %p"),
-            work_completion_percentage = wcp
-        )
-        db.session.add(task)
-        make_notif(
-            userId=assignee_id, ntype="task",
-            title="New Task Assigned",
-            body='"' + task.title + '" was assigned to you by ' + founder.name + '. Due: ' + (task.due or "TBD")
+        task = create_task_record(
+            assignee_id = assignee_id,
+            title       = (data.get("title") or "").strip(),
+            desc        = (data.get("desc")  or "").strip(),
+            priority    = data.get("priority", "medium"),
+            due         = data.get("due") or "TBD",
+            msg         = (data.get("msg") or "").strip(),
+            assigned_by_id = uid,
+            work_completion_percentage = data.get("work_completion_percentage", 0)
         )
         db.session.commit()
         return jsonify({"success": True, "task": task_to_dict(task)})
@@ -3872,8 +3982,365 @@ if APSCHEDULER_AVAILABLE:
 
 
 # ─────────────────────────────────────────────
+# AI HELP ASSISTANT — Groq-powered chat with tool calling
+# ─────────────────────────────────────────────
+
+def _safe_uname(uid):
+    u = db.session.get(User, uid)
+    return u.name if u else uid
+
+
+def build_help_system_prompt(user):
+    prompt = f"""You are the TaskFlow Assistant for Plant Green Inertia (PGI). You help {user.name} ({user.role}) use the TaskFlow dashboard.
+
+TaskFlow has these areas:
+- Vision Board: overview of tasks, projects, and goals
+- My Tasks: tasks assigned to the user (pending, in progress, submitted, completed)
+- Attendance: check in/out, view attendance percentage, request leave
+- Teams: browse teams and members
+- Messages: company-wide and team chat channels
+- Calendar: shared company calendar
+- My Notepad: private personal to-do list
+"""
+    if is_founder_like(user):
+        prompt += """
+As founder-level staff, this user can also: Assign Task, Verify Proofs, Manage Users, Rate Employees, Auto Tasks (task templates), Attendance Map, and PGI Mastermind (projects & interns).
+
+TASK ASSIGNMENT — MANDATORY BEHAVIOR:
+Whenever the user's message means "assign a task", "create a task for someone", "give X work to Y",
+or "allocate a task", you MUST call the assign_task tool — never just say you'll do it or chat about it.
+- If the tool result has "multiple_matches": true, relay its "message" field verbatim and ask the
+  user to clarify. Do NOT guess which employee they meant.
+- If the tool result has an "error", relay that exact error message back to the user.
+- If the title of the task is missing from the user's message, ask: "What task would you like to assign?"
+  before calling the tool.
+- Only call assign_task with confirm=true after the user has explicitly confirmed (e.g. "yes", "confirm", "go ahead").
+"""
+    else:
+        prompt += """
+This user does NOT have permission to assign tasks. If they ask to assign, create, give, or allocate
+a task to someone else, respond with exactly: "You don't have permission to assign tasks."
+Do not attempt to perform or promise the assignment.
+"""
+    prompt += """
+Use the available tools to look up real data or perform actions when asked — never invent numbers or statuses.
+
+For any action that changes data (check in, check out, requesting leave, assigning a task), first explain in plain language exactly what you're about to do, then ask the user to explicitly confirm. Only call the tool with confirm=true after the user has clearly said yes/confirm/go ahead in the conversation. Never set confirm=true on the first attempt.
+
+Keep replies concise, warm, and specific to TaskFlow. If asked something unrelated to TaskFlow, politely redirect to what you can help with here.
+"""
+    return prompt
+
+
+def build_help_tools(user):
+    tools = [
+        {"type": "function", "function": {
+            "name": "get_attendance_status",
+            "description": "Get the current user's attendance status for today, including check-in/check-out time.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }},
+        {"type": "function", "function": {
+            "name": "get_attendance_percentage",
+            "description": "Get the current user's attendance percentage and working-day statistics.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }},
+        {"type": "function", "function": {
+            "name": "get_my_tasks_summary",
+            "description": "Get a count of the current user's tasks grouped by status.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }},
+        {"type": "function", "function": {
+            "name": "check_in",
+            "description": "Check the current user in for today's attendance. Only executes when confirm=true.",
+            "parameters": {"type": "object", "properties": {
+                "confirm": {"type": "boolean", "description": "Set true only after the user has explicitly confirmed."}
+            }, "required": []}
+        }},
+        {"type": "function", "function": {
+            "name": "check_out",
+            "description": "Check the current user out for today. Only executes when confirm=true.",
+            "parameters": {"type": "object", "properties": {
+                "confirm": {"type": "boolean"}
+            }, "required": []}
+        }},
+        {"type": "function", "function": {
+            "name": "request_leave",
+            "description": "Submit a leave request for the current user for a specific date. Only executes when confirm=true.",
+            "parameters": {"type": "object", "properties": {
+                "date":    {"type": "string", "description": "Date in YYYY-MM-DD format"},
+                "reason":  {"type": "string", "description": "Reason for leave"},
+                "confirm": {"type": "boolean"}
+            }, "required": ["date"]}
+        }},
+    ]
+    if is_founder_like(user):
+        tools.append({"type": "function", "function": {
+            "name": "get_pending_leave_requests",
+            "description": "List all pending leave requests awaiting founder approval.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }})
+        tools.append({"type": "function", "function": {
+            "name": "assign_task",
+            "description": (
+                "Assign a new task to a team member — identical to using the manual "
+                "'Assign Task' form. Only founder-level users may call this. "
+                "Always call this tool when the user asks to assign/create/give/allocate "
+                "a task to someone; never just reply conversationally. "
+                "Requires confirm=true to actually create the task, after a preview."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "employee":    {"type": "string", "description": "Name, partial name, email, or initials of the employee."},
+                    "title":       {"type": "string", "description": "Short task title."},
+                    "description": {"type": "string", "description": "Task details/description."},
+                    "priority":    {"type": "string", "enum": ["high", "medium", "low"]},
+                    "due":         {"type": "string", "description": "Due date YYYY-MM-DD, optional."},
+                    "confirm":     {"type": "boolean"}
+                },
+                "required": ["employee", "title"]
+            }
+        }})
+    return tools
+
+
+def execute_help_tool(fname, fargs, user):
+    """Returns (result_dict, needs_confirmation: bool)."""
+    uid = user.id
+
+    if fname == "get_attendance_status":
+        att = Attendance.query.filter_by(userId=uid, date=today_str()).first()
+        return ({
+            "status": att.status if att else "absent",
+            "checkin_time": att.checkin_time if att else None,
+            "checkout_time": att.checkout_time if att else None,
+        }, False)
+
+    if fname == "get_attendance_percentage":
+        return (attendance_stats_for_user(user), False)
+
+    if fname == "get_my_tasks_summary":
+        tasks = Task.query.filter_by(assignedTo=uid).all()
+        summary = {}
+        for t in tasks:
+            summary[t.status] = summary.get(t.status, 0) + 1
+        return ({"total": len(tasks), "by_status": summary}, False)
+
+    if fname == "check_in":
+        att_existing = Attendance.query.filter_by(userId=uid, date=today_str()).first()
+        if att_existing and att_existing.checkin_time:
+            return ({"already_checked_in": True, "checkin_time": att_existing.checkin_time}, False)
+        if not fargs.get("confirm"):
+            return ({"preview": "Ready to check you in for today. Awaiting confirmation."}, True)
+        now_ts = now_iso()
+        if att_existing:
+            att_existing.status = "present"
+            att_existing.checkin_time = now_ts
+            att_existing.checkout_time = None
+            att_existing.worked_hours = None
+        else:
+            db.session.add(Attendance(userId=uid, status="present", date=today_str(), checkin_time=now_ts))
+        db.session.add(AuditLog(action=f"{user.name} checked in via AI assistant",
+                                 performed_by=user.name, timestamp=now_ist().strftime("%b %d, %Y %I:%M %p")))
+        db.session.commit()
+        return ({"success": True, "checkin_time": now_ts}, False)
+
+    if fname == "check_out":
+        att = Attendance.query.filter_by(userId=uid, date=today_str()).first()
+        if not att or not att.checkin_time:
+            return ({"error": "You must check in before checking out"}, False)
+        if att.checkout_time:
+            return ({"already_checked_out": True, "checkout_time": att.checkout_time}, False)
+        if not fargs.get("confirm"):
+            return ({"preview": "Ready to check you out for today. Awaiting confirmation."}, True)
+        now_ts = now_iso()
+        att.checkout_time = now_ts
+        att.worked_hours  = _compute_worked_hours(att.checkin_time, att.checkout_time)
+        att.status = "completed"
+        db.session.add(AuditLog(action=f"{user.name} checked out via AI assistant",
+                                 performed_by=user.name, timestamp=now_ist().strftime("%b %d, %Y %I:%M %p")))
+        db.session.commit()
+        return ({"success": True, "checkout_time": now_ts, "worked_hours": att.worked_hours}, False)
+
+    if fname == "request_leave":
+        date   = (fargs.get("date") or "").strip()
+        reason = (fargs.get("reason") or "").strip()
+        if not date:
+            return ({"error": "date is required, e.g. 2026-07-10"}, False)
+        if not fargs.get("confirm"):
+            preview = f"Ready to submit a leave request for {date}"
+            if reason:
+                preview += f" (reason: {reason})"
+            preview += ". Awaiting confirmation."
+            return ({"preview": preview}, True)
+        lr = LeaveRequest(userId=uid, date=date, reason=reason, status="pending",
+                           requested_at=now_ist().strftime("%b %d, %Y %I:%M %p"))
+        db.session.add(lr)
+        db.session.add(AuditLog(action=f"{user.name} requested leave for {date} via AI assistant",
+                                 performed_by=user.name, timestamp=now_ist().strftime("%b %d, %Y %I:%M %p")))
+        db.session.commit()
+        for f in User.query.filter(User.role.in_(["founder", "founder_assistant"])).all():
+            make_notif(userId=f.id, ntype="leave", title="📝 Leave Request",
+                       body=f"{user.name} requested leave for {date}")
+        db.session.commit()
+        return ({"success": True, "id": lr.id}, False)
+
+    if fname == "get_pending_leave_requests" and is_founder_like(user):
+        rows = LeaveRequest.query.filter_by(status="pending").all()
+        return ({"pending": [{"id": r.id, "user": _safe_uname(r.userId), "date": r.date, "reason": r.reason} for r in rows]}, False)
+
+    if fname == "assign_task":
+        if not is_founder_like(user):
+            return ({"error": "You don't have permission to assign tasks."}, False)
+
+        employee_query = (fargs.get("employee") or "").strip()
+        title          = (fargs.get("title") or "").strip()
+        if not employee_query or not title:
+            return ({"error": "What task would you like to assign, and to whom?"}, False)
+
+        matches = find_employee_matches(employee_query)
+        if not matches:
+            return ({"error": "I couldn't find that employee."}, False)
+        if len(matches) > 1:
+            names = [m.name for m in matches]
+            return ({
+                "multiple_matches": True,
+                "candidates": names,
+                "message": "Did you mean " + " or ".join(names) + "?"
+            }, False)
+
+        assignee = matches[0]
+        desc     = (fargs.get("description") or "").strip() or title
+        priority = fargs.get("priority") or "medium"
+        due      = (fargs.get("due") or "").strip() or "TBD"
+
+        if not fargs.get("confirm"):
+            return ({"preview": f'Ready to assign "{title}" to {assignee.name}. Awaiting confirmation.'}, True)
+
+        task = create_task_record(
+            assignee_id=assignee.id, title=title, desc=desc,
+            priority=priority, due=due, msg="",
+            assigned_by_id=uid
+        )
+        db.session.add(AuditLog(
+            action=f"{user.name} assigned task '{title}' to {assignee.name} via AI assistant",
+            performed_by=user.name,
+            timestamp=now_ist().strftime("%b %d, %Y %I:%M %p")
+        ))
+        db.session.commit()
+        return ({"success": True, "assignee": assignee.name, "title": title, "task_id": task.id}, False)
+
+    return ({"error": f"Unknown or unauthorized tool: {fname}"}, False)
+
+
+# ─────────────────────────────────────────────
+# AI CHAT — private, per-user history
+# ─────────────────────────────────────────────
+
+@app.route("/api/chat/history", methods=["GET"])
+@jwt_required()
+def get_chat_history():
+    uid = get_jwt_identity()
+    rows = (AIChatMessage.query
+            .filter_by(user_id=uid)
+            .order_by(AIChatMessage.id.asc())
+            .all())
+    return jsonify([{
+        "role": r.role, "content": r.content, "created_at": r.created_at
+    } for r in rows])
+
+
+@app.route("/api/chat/history", methods=["DELETE"])
+@jwt_required()
+def clear_chat_history():
+    uid = get_jwt_identity()
+    deleted = AIChatMessage.query.filter_by(user_id=uid).delete()
+    db.session.commit()
+    return jsonify({"success": True, "deleted": deleted})
+
+
+@app.route("/api/chat", methods=["POST"])
+@jwt_required()
+def post_chat():
+    uid  = get_jwt_identity()
+    user = db.session.get(User, uid)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if not GROQ_API_KEY:
+        return jsonify({"success": False, "error": "Groq API key is missing or invalid."}), 503
+
+    data = request.get_json() or {}
+    user_text = (data.get("message") or "").strip()
+    if not user_text:
+        return jsonify({"error": "No message provided"}), 400
+
+    history_rows = (AIChatMessage.query
+                     .filter_by(user_id=uid)
+                     .order_by(AIChatMessage.id.asc())
+                     .all())
+    history = [{"role": r.role, "content": r.content} for r in history_rows][-30:]
+
+    now_ts = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+    db.session.add(AIChatMessage(user_id=uid, role="user", content=user_text, created_at=now_ts))
+    db.session.commit()
+
+    messages = [{"role": "system", "content": build_help_system_prompt(user)}] + history + \
+               [{"role": "user", "content": user_text}]
+
+    try:
+        result = groq_chat(messages, tools=build_help_tools(user))
+    except Exception as e:
+        return jsonify({"success": False, "error": f"AI service error: {e}"}), 502
+
+    choice     = result.get("choices", [{}])[0].get("message", {})
+    tool_calls = choice.get("tool_calls")
+    pending    = []
+    final_msg  = choice.get("content", "")
+
+    if tool_calls:
+        messages.append(choice)
+        for tc in tool_calls:
+            fname = tc["function"]["name"]
+            try:
+                fargs = json.loads(tc["function"].get("arguments") or "{}")
+            except Exception:
+                fargs = {}
+            tool_result, needs_confirm = execute_help_tool(fname, fargs, user)
+            if needs_confirm:
+                pending.append({"tool": fname, "args": fargs, "summary": tool_result.get("preview", "")})
+            messages.append({
+                "role": "tool", "tool_call_id": tc["id"], "name": fname,
+                "content": json.dumps(tool_result)
+            })
+        try:
+            followup  = groq_chat(messages)
+            final_msg = followup.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except Exception:
+            final_msg = "I hit an issue completing that — please try again."
+
+    db.session.add(AIChatMessage(
+        user_id=uid, role="assistant", content=final_msg,
+        created_at=now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+    ))
+    db.session.commit()
+
+    return jsonify({"reply": final_msg, "pending_confirmations": pending})
+
+# ─────────────────────────────────────────────
 # ERROR HANDLERS
 # ─────────────────────────────────────────────
+
+@app.route("/api/debug-groq")
+@jwt_required()
+def debug_groq():
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    return jsonify({
+        "key_present": bool(GROQ_API_KEY),
+        "key_length": len(GROQ_API_KEY),
+        "key_prefix": GROQ_API_KEY[:6] if GROQ_API_KEY else None,
+    })
 
 @app.errorhandler(500)
 def internal_error(e):
