@@ -52,6 +52,40 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .screen{display:none;min-height:100vh}
 .screen.active{display:flex}
 
+/* AI HELP CHAT WIDGET */
+.help-fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,var(--forest),var(--leaf));display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 24px rgba(26,92,42,0.4);z-index:800;font-size:24px;transition:transform 0.2s}
+.help-fab:hover{transform:scale(1.08)}
+.help-panel{position:fixed;bottom:92px;right:24px;width:360px;max-width:calc(100vw - 32px);height:480px;max-height:calc(100vh - 140px);background:var(--surface);border:1px solid var(--border2);border-radius:16px;box-shadow:0 12px 48px rgba(0,0,0,0.35);z-index:800;display:none;flex-direction:column;overflow:hidden}
+.help-panel.open{display:flex}
+.help-head{background:var(--forest);color:var(--white);padding:14px 16px;display:flex;align-items:center;gap:8px}
+.help-head span{font-family:'DM Serif Display',serif;font-size:15px;flex:1}
+.help-close{cursor:pointer;font-size:18px;opacity:0.8}
+.help-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--warm)}
+.help-msg{max-width:85%;padding:9px 13px;border-radius:12px;font-size:13px;line-height:1.5}
+.help-msg.user{align-self:flex-end;background:var(--forest);color:var(--white)}
+.help-msg.bot{align-self:flex-start;background:var(--white);border:1px solid var(--border);color:var(--text)}
+.help-confirm-row{align-self:flex-start;display:flex;gap:6px;margin-top:2px}
+.help-input-row{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);background:var(--white)}
+.help-input-row input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:13px;font-family:'DM Sans',sans-serif;outline:none}
+.help-voice-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border-top:1px solid var(--border);background:var(--white)}
+.help-mic-btn{width:36px;height:36px;border-radius:50%;border:1px solid var(--border2);background:var(--surface2);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;flex-shrink:0;transition:all .2s}
+.help-mic-btn:hover{border-color:var(--leaf)}
+.help-mic-btn.listening{background:linear-gradient(135deg,var(--forest),var(--leaf));color:#fff;animation:micPulse 1.2s ease-in-out infinite}
+.help-mic-btn.processing{background:var(--gold-brand);color:#fff}
+.help-mic-btn.error{background:rgba(192,57,43,0.15);border-color:var(--red)}
+@keyframes micPulse{0%,100%{box-shadow:0 0 0 0 rgba(76,175,80,.5)}50%{box-shadow:0 0 0 8px rgba(76,175,80,0)}}
+.help-voice-status{flex:1;font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px;min-height:16px}
+.help-voice-status .dot{width:6px;height:6px;border-radius:50%;background:var(--leaf);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.help-stop-speak-btn{font-size:10px;padding:4px 8px;border-radius:6px;border:1px solid rgba(192,57,43,.35);background:rgba(192,57,43,.08);color:var(--red);cursor:pointer;display:none}
+.help-stop-speak-btn.show{display:inline-flex;align-items:center;gap:4px}
+.help-settings-btn{cursor:pointer;font-size:14px;opacity:.85}
+.help-voice-settings{display:none;padding:12px 14px;border-top:1px solid var(--border);background:var(--warm);font-size:12px}
+.help-voice-settings.open{display:block}
+.help-voice-settings label{display:block;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin:8px 0 4px}
+.help-voice-settings select,.help-voice-settings input[type=range]{width:100%}
+.help-typing{align-self:flex-start;font-size:12px;color:var(--text3);padding:4px 8px}
+
 /* LOGIN */
 #login{align-items:center;justify-content:center;background:linear-gradient(160deg,var(--warm) 60%,#E8F5E9 100%);position:relative;padding:16px}
 #login::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 70% 50% at 50% 0%,rgba(76,175,80,0.10),transparent);pointer-events:none}
@@ -1427,6 +1461,7 @@ function doLogout() {
   localStorage.removeItem('pgi_user');
   currentUser = null; API_TOKEN = null;
   ALL_USERS = []; TASKS = []; ATTENDANCE = {}; CHANNEL_MSGS = {}; NOTIFICATIONS = [];
+  resetHelpChatState();
   document.getElementById('app').classList.remove('active');
   document.getElementById('login').classList.add('active');
   closeSidebar(); closeNotifPanel();
@@ -5907,6 +5942,291 @@ async function dispatchTemplateNow() {
 
 // Pre-load immediately so it's ready when user clicks Upload
 ensureXLSX().catch(() => {});
+
+let HELP_HISTORY = [];
+let helpPanelOpened = false;
+
+function resetHelpChatState() {
+  stopAllVoiceActivity();          // ← add this line
+  HELP_HISTORY = [];
+  helpPanelOpened = false;
+  const panel = document.getElementById('help-panel');
+  if (panel) panel.classList.remove('open');
+  const body = document.getElementById('help-body');
+  if (body) body.innerHTML = '';
+}
+
+async function toggleHelpChat() {
+  const panel = document.getElementById('help-panel');
+  const isOpening = !panel.classList.contains('open');
+  panel.classList.toggle('open');
+  if (isOpening) {
+    loadVoiceSettings();
+    populateVoiceList();
+    if (!helpPanelOpened) {
+      helpPanelOpened = true;
+      await loadHelpChatHistory();
+    }
+  } else {
+    stopAllVoiceActivity();       // stop mic/speech when chat is closed
+  }
+}
+
+async function loadHelpChatHistory() {
+  const body = document.getElementById('help-body');
+  body.innerHTML = '';
+  const res = await api('GET', '/chat/history');
+  if (Array.isArray(res) && res.length) {
+    res.forEach(m => {
+      appendHelpMsg(m.role === 'user' ? 'user' : 'bot', m.content);
+      HELP_HISTORY.push({ role: m.role, content: m.content });
+    });
+  } else {
+    appendHelpMsg('bot', "Hi! I'm your TaskFlow assistant. Ask me how to do something, or I can check your attendance, mark you in/out, or submit a leave request.");
+  }
+}
+
+function appendHelpMsg(role, text) {
+  const body = document.getElementById('help-body');
+  const div = document.createElement('div');
+  div.className = 'help-msg ' + (role === 'user' ? 'user' : 'bot');
+  div.textContent = text;
+  body.appendChild(div);
+  body.scrollTop = body.scrollHeight;
+  return div;
+}
+
+async function sendHelpMsg() {
+  const input = document.getElementById('help-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  await sendHelpMsgText(text);
+}
+
+async function sendHelpMsgText(text) {
+  appendHelpMsg('user', text);
+  HELP_HISTORY.push({ role: 'user', content: text });
+
+  const body = document.getElementById('help-body');
+  const typing = document.createElement('div');
+  typing.className = 'help-typing';
+  typing.textContent = 'Thinking…';
+  body.appendChild(typing);
+  body.scrollTop = body.scrollHeight;
+
+  const res = await api('POST', '/chat', { message: text });
+  typing.remove();
+
+  if (!res || res.__error || res.error || res.success === false) {
+    appendHelpMsg('bot', '⚠ ' + (res?.message || res?.error || 'Something went wrong.'));
+    return;
+  }
+
+  appendHelpMsg('bot', res.reply || '...');
+  HELP_HISTORY.push({ role: 'assistant', content: res.reply || '' });
+
+  if (_lastInputWasVoice || VOICE_SETTINGS.autoSpeak) {
+    speakText(res.reply || '');
+  }
+  _lastInputWasVoice = false;
+
+  if (res.pending_confirmations && res.pending_confirmations.length) {
+    const row = document.createElement('div');
+    row.className = 'help-confirm-row';
+    const yesBtn = document.createElement('button');
+    yesBtn.className = 'btn-tiny confirm';
+    yesBtn.textContent = '✓ Confirm';
+    yesBtn.onclick = () => { row.remove(); sendHelpMsgText('Yes, confirm.'); };
+    const noBtn = document.createElement('button');
+    noBtn.className = 'btn-tiny reject';
+    noBtn.textContent = '✕ Cancel';
+    noBtn.onclick = () => { row.remove(); sendHelpMsgText('No, cancel that.'); };
+    row.appendChild(yesBtn);
+    row.appendChild(noBtn);
+    body.appendChild(row);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  loadAttendance();
+  if (document.getElementById('panel-attendance')?.classList.contains('active')) renderAttendance();
+}
+
+async function clearHelpChat() {
+  if (!confirm('Clear your AI assistant conversation? This only affects your own chat.')) return;
+  await api('DELETE', '/chat/history');
+  resetHelpChatState();
+  helpPanelOpened = true;
+  document.getElementById('help-panel').classList.add('open');
+  appendHelpMsg('bot', "Chat cleared. How can I help you?");
+}
+
+// ═══════════════════════════════════════════════════════════
+// VOICE ASSISTANT (FREE — Web Speech API only)
+// ═══════════════════════════════════════════════════════════
+let voiceRecognition = null;
+let micState = 'idle'; // idle | listening | processing | speaking | error
+let _lastInputWasVoice = false;
+let VOICE_SETTINGS = { voiceURI: '', rate: 1, volume: 1, autoSpeak: false };
+
+function _voiceSettingsKey() {
+  return 'pgi_voice_settings_' + (currentUser ? currentUser.id : 'anon');
+}
+
+function loadVoiceSettings() {
+  try {
+    const raw = localStorage.getItem(_voiceSettingsKey());
+    if (raw) VOICE_SETTINGS = Object.assign(VOICE_SETTINGS, JSON.parse(raw));
+  } catch(e) {}
+  const rateEl = document.getElementById('vset-rate');
+  const volEl  = document.getElementById('vset-vol');
+  const asEl   = document.getElementById('vset-autospeak');
+  if (rateEl) { rateEl.value = VOICE_SETTINGS.rate; document.getElementById('vset-rate-val').textContent = VOICE_SETTINGS.rate; }
+  if (volEl)  { volEl.value  = VOICE_SETTINGS.volume; document.getElementById('vset-vol-val').textContent = Math.round(VOICE_SETTINGS.volume*100); }
+  if (asEl)   asEl.checked = !!VOICE_SETTINGS.autoSpeak;
+}
+
+function saveVoiceSettings() {
+  const rateEl  = document.getElementById('vset-rate');
+  const volEl   = document.getElementById('vset-vol');
+  const voiceEl = document.getElementById('vset-voice');
+  const asEl    = document.getElementById('vset-autospeak');
+  VOICE_SETTINGS.rate      = rateEl  ? parseFloat(rateEl.value) : 1;
+  VOICE_SETTINGS.volume    = volEl   ? parseFloat(volEl.value)  : 1;
+  VOICE_SETTINGS.voiceURI  = voiceEl ? voiceEl.value : '';
+  VOICE_SETTINGS.autoSpeak = asEl ? asEl.checked : false;
+  try { localStorage.setItem(_voiceSettingsKey(), JSON.stringify(VOICE_SETTINGS)); } catch(e) {}
+}
+
+function toggleVoiceSettings() {
+  const panel = document.getElementById('help-voice-settings');
+  if (!panel) return;
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) { populateVoiceList(); loadVoiceSettings(); }
+}
+
+function populateVoiceList() {
+  const sel = document.getElementById('vset-voice');
+  if (!sel || !('speechSynthesis' in window)) return;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return; // retried via onvoiceschanged below
+  sel.innerHTML = '';
+  voices.forEach(v => {
+    const o = document.createElement('option');
+    o.value = v.voiceURI;
+    o.textContent = `${v.name} (${v.lang})`;
+    sel.appendChild(o);
+  });
+  if (VOICE_SETTINGS.voiceURI && voices.some(v => v.voiceURI === VOICE_SETTINGS.voiceURI)) {
+    sel.value = VOICE_SETTINGS.voiceURI;
+  } else {
+    const female = voices.find(v => /female|zira|samantha|uk english female/i.test(v.name));
+    sel.value = (female || voices[0]).voiceURI;
+    VOICE_SETTINGS.voiceURI = sel.value;
+  }
+}
+if ('speechSynthesis' in window) window.speechSynthesis.onvoiceschanged = populateVoiceList;
+
+function setMicState(state) {
+  micState = state;
+  const btn    = document.getElementById('help-mic-btn');
+  const status = document.getElementById('help-voice-status');
+  if (!btn || !status) return;
+  btn.classList.remove('listening','processing','error');
+  if (state === 'listening') { btn.classList.add('listening'); status.innerHTML = '<span class="dot"></span> Listening...'; }
+  else if (state === 'processing') { btn.classList.add('processing'); status.innerHTML = 'Processing...'; }
+  else if (state === 'speaking') { status.innerHTML = '🔊 Speaking...'; }
+  else if (state === 'error') { btn.classList.add('error'); }
+  else { status.innerHTML = ''; }
+}
+
+function getSpeechRecognitionCtor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function initVoiceRecognition() {
+  const Ctor = getSpeechRecognitionCtor();
+  if (!Ctor) return null;
+  const rec = new Ctor();
+  rec.lang = 'en-IN';
+  rec.continuous = false;
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  rec.onstart = () => setMicState('listening');
+  rec.onresult = (e) => {
+    const transcript = e.results[0][0].transcript;
+    setMicState('processing');
+    const input = document.getElementById('help-input');
+    if (input) input.value = transcript;
+    _lastInputWasVoice = true;
+    sendHelpMsg();
+  };
+  rec.onerror = (e) => {
+    setMicState('error');
+    const status = document.getElementById('help-voice-status');
+    if (e.error === 'not-allowed' || e.error === 'permission-denied') {
+      if (status) status.textContent = 'Microphone permission denied.';
+      showToast('🎤 Microphone permission denied.');
+    } else {
+      if (status) status.textContent = "I couldn't hear you. Please try again.";
+    }
+    setTimeout(() => setMicState('idle'), 2500);
+  };
+  rec.onend = () => { if (micState === 'listening') setMicState('idle'); };
+  return rec;
+}
+
+function toggleMic() {
+  const Ctor = getSpeechRecognitionCtor();
+  if (!Ctor) {
+    showToast('Voice Assistant is not supported in this browser.');
+    const status = document.getElementById('help-voice-status');
+    if (status) status.textContent = 'Voice Assistant is not supported in this browser.';
+    return;
+  }
+  if (micState === 'listening') { voiceRecognition && voiceRecognition.stop(); setMicState('idle'); return; }
+  stopSpeaking();
+  if (!voiceRecognition) voiceRecognition = initVoiceRecognition();
+  try { voiceRecognition.start(); }
+  catch(e) {
+    voiceRecognition = initVoiceRecognition();
+    try { voiceRecognition.start(); } catch(e2) { setMicState('error'); }
+  }
+}
+
+function speakText(text) {
+  if (!('speechSynthesis' in window) || !text) return;
+  stopSpeaking();
+  const utter = new SpeechSynthesisUtterance(text);
+  const voices = window.speechSynthesis.getVoices();
+  const chosen = voices.find(v => v.voiceURI === VOICE_SETTINGS.voiceURI);
+  if (chosen) utter.voice = chosen;
+  utter.rate   = VOICE_SETTINGS.rate   || 1;
+  utter.volume = VOICE_SETTINGS.volume != null ? VOICE_SETTINGS.volume : 1;
+  utter.onstart = () => {
+    setMicState('speaking');
+    document.getElementById('help-stop-speak-btn')?.classList.add('show');
+  };
+  utter.onend = utter.onerror = () => {
+    setMicState('idle');
+    document.getElementById('help-stop-speak-btn')?.classList.remove('show');
+  };
+  window.speechSynthesis.speak(utter);
+}
+
+function stopSpeaking() {
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  document.getElementById('help-stop-speak-btn')?.classList.remove('show');
+  if (micState === 'speaking') setMicState('idle');
+}
+
+function stopAllVoiceActivity() {
+  if (voiceRecognition) { try { voiceRecognition.stop(); } catch(e) {} }
+  stopSpeaking();
+  setMicState('idle');
+  _lastInputWasVoice = false;
+}
+
 </script>
 
 <!-- ── EDIT PROJECT MODAL ─────────────────────────────────── -->
@@ -6002,5 +6322,30 @@ ensureXLSX().catch(() => {});
   </div>
 </div>
 
+<div class="help-fab" onclick="toggleHelpChat()">💬</div>
+<div class="help-panel" id="help-panel">
+<div class="help-head"><span>✨ TaskFlow Assistant</span><span onclick="toggleVoiceSettings()" title="Voice settings" class="help-settings-btn">⚙️</span><span onclick="clearHelpChat()" title="Clear my chat" style="cursor:pointer;font-size:14px;opacity:0.85;margin-right:12px">🗑</span><span class="help-close" onclick="toggleHelpChat()">✕</span></div>
+<div class="help-voice-settings" id="help-voice-settings">
+  <label>Voice</label>
+  <select id="vset-voice" onchange="saveVoiceSettings()"></select>
+  <label>Speaking Speed (<span id="vset-rate-val">1.0</span>x)</label>
+  <input type="range" id="vset-rate" min="0.5" max="2" step="0.1" value="1" oninput="document.getElementById('vset-rate-val').textContent=this.value;saveVoiceSettings()">
+  <label>Voice Volume (<span id="vset-vol-val">100</span>%)</label>
+  <input type="range" id="vset-vol" min="0" max="1" step="0.05" value="1" oninput="document.getElementById('vset-vol-val').textContent=Math.round(this.value*100);saveVoiceSettings()">
+  <label style="display:flex;align-items:center;gap:6px;text-transform:none;font-weight:500;color:var(--text2);font-size:12px;margin-top:10px">
+    <input type="checkbox" id="vset-autospeak" onchange="saveVoiceSettings()" style="width:auto"> Always speak AI replies (not just voice input)
+  </label>
+</div>
+<div class="help-body" id="help-body"></div>
+<div class="help-voice-row" id="help-voice-row">
+  <button class="help-mic-btn" id="help-mic-btn" onclick="toggleMic()" title="Speak">🎤</button>
+  <div class="help-voice-status" id="help-voice-status"></div>
+  <button class="help-stop-speak-btn" id="help-stop-speak-btn" onclick="stopSpeaking()">⏹ Stop Speaking</button>
+</div>
+  <div class="help-input-row">
+    <input type="text" id="help-input" placeholder="Ask me anything about TaskFlow..." onkeydown="if(event.key==='Enter')sendHelpMsg()">
+    <button class="btn-sm btn-gold" onclick="sendHelpMsg()">Send</button>
+  </div>
+</div>
 </body>
 </html>
