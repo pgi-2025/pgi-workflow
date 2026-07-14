@@ -5470,15 +5470,20 @@ function populateProjectMembersDropdown() {
   const dd = document.getElementById('np-members-dropdown');
   if (!dd) return;
   const people = ALL_USERS.filter(u => u.role !== 'founder');
-  const byDept = {};
+  const byTeam = {};
   people.forEach(u => {
-    const dept = u.department || 'Unassigned';
-    if (!byDept[dept]) byDept[dept] = [];
-    byDept[dept].push(u);
+    const teamId = u.team || 'unassigned';
+    if (!byTeam[teamId]) byTeam[teamId] = [];
+    byTeam[teamId].push(u);
   });
-  const depts = Object.keys(byDept).sort();
-  dd.innerHTML = depts.map(dept => {
-    const items = byDept[dept]
+  const teamIds = Object.keys(byTeam).sort((a, b) => {
+    const ia = TEAM_CONFIG.findIndex(t => t.id === a);
+    const ib = TEAM_CONFIG.findIndex(t => t.id === b);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+  dd.innerHTML = teamIds.map(teamId => {
+    const teamName = TEAM_CONFIG.find(t => t.id === teamId)?.name || (teamId === 'unassigned' ? 'Unassigned' : teamId);
+    const items = byTeam[teamId]
       .sort((a,b) => (a.name||'').localeCompare(b.name||''))
       .map(u => {
         const isSel = PROJECT_MEMBERS_SELECTED.includes(u.name);
@@ -5488,7 +5493,7 @@ function populateProjectMembersDropdown() {
           ${escapeHTML(u.name)}
         </div>`;
       }).join('');
-    return `<div style="padding:8px 12px 2px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text3);text-align:left">${escapeHTML(dept)}</div>${items}`;
+    return `<div style="padding:8px 12px 2px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text3);text-align:left">${escapeHTML(teamName)}</div>${items}`;
   }).join('');
 }
 
