@@ -740,6 +740,16 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="14" height="12" rx="2"/><path d="M5 8h6M5 5h3M5 11h4"/></svg>
         My Tasks
       </div>
+      <div class="nav-item" id="nav-daily-update" onclick="showPanel('dailyupdate',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="2"/><path d="M4 6h8M4 9h8M4 12h5"/></svg>
+        Daily Task Update
+      </div>
+
+      <div class="nav-item" id="nav-self-tasks" onclick="showPanel('selftasks',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="1" width="12" height="14" rx="2"/><path d="M5 5h6M5 8h6M5 11h3"/><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" opacity="0.4"/></svg>
+        Self Tasks
+      </div>
+
       <div class="nav-item" onclick="showPanel('teams',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="currentColor"><circle cx="5.5" cy="5" r="2.5"/><circle cx="10.5" cy="5" r="2.5"/><path d="M0 13c0-2.76 2.46-5 5.5-5s5.5 2.24 5.5 5H0z"/><path d="M6 13c0-2.76 2.24-5 5-5s5 2.24 5 5h-10z" opacity=".45"/></svg>
         Teams
@@ -775,6 +785,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
       <div class="nav-item founder-only" id="nav-ratings" onclick="showPanel('ratings',this)">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 2l1.5 3.5L13 6l-2.5 2.5.5 3.5L8 10.5 5 12l.5-3.5L3 6l3.5-.5z"/></svg>
         Rate Employees
+      </div>
+      <div class="nav-item founder-only" id="nav-dailyreview" onclick="showPanel('dailyreview',this)">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="2" width="14" height="12" rx="2"/><path d="M4 6h8M4 9h8M4 12h5"/></svg>
+        Daily Task Review
       </div>
 
       <div class="nav-item" onclick="showPanel('notepad',this)">
@@ -884,6 +898,75 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
       <!-- MY TASKS -->
       <div class="panel" id="panel-tasks">
         <div id="my-tasks-list"><div class="loading-state"><div class="spinner"></div>Loading tasks...</div></div>
+      </div>
+
+      <!-- DAILY TASK UPDATE (Employee / Founder Assistant) -->
+      <div class="panel" id="panel-dailyupdate">
+        <div style="max-width:640px">
+          <div class="assign-card" style="margin-bottom:20px">
+            <h3 id="dtu-form-heading">Daily Task Update</h3>
+            <div class="assign-sub">Submit your work summary for today</div>
+            <div class="form-field"><label>Date</label><input type="text" id="dtu-date" readonly style="opacity:0.6"></div> <div class="form-field"><label>Today's Tasks</label><textarea id="dtu-today" rows="3" placeholder="What did you work on today?"></textarea></div>
+            <div class="form-field"><label>Tomorrow's Plan</label><textarea id="dtu-tomorrow" rows="2" placeholder="What's the plan for tomorrow?"></textarea></div>
+            <div class="form-field"><label>Total Working Hours</label><input type="number" id="dtu-hours" min="0" max="24" step="0.5" placeholder="e.g. 8"></div>
+            <div class="assign-actions">
+              <button class="btn-sm btn-gold" id="dtu-submit-btn" onclick="submitDailyUpdate()">Submit</button>
+            </div>
+          </div>
+          <div class="section-header"><div class="section-title">Previous Daily Updates</div></div>
+          <div id="dtu-history-list"><div class="loading-state"><div class="spinner"></div>Loading...</div></div>
+        </div>
+      </div>
+
+      <!-- SELF TASKS (Employee / Founder Assistant) -->
+      <div class="panel" id="panel-selftasks">
+        <div style="max-width:720px">
+          <div class="assign-card" style="margin-bottom:20px">
+            <h3>Self Task Manager</h3>
+            <div class="assign-sub">Create Self Task</div>
+            <div class="form-field"><label>Task Title</label><input type="text" id="st-title" placeholder="e.g. Contact ABC College regarding MOU"></div>
+            <div class="form-field"><label>Description</label><textarea id="st-desc" rows="3" placeholder="Notes..."></textarea></div>
+            <div class="form-row">
+              <div class="form-field"><label>Priority</label>
+                <select id="st-priority"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option></select>
+              </div>
+              <div class="form-field"><label>Due Date</label><input type="date" id="st-due-date"></div>
+            </div>
+            <div class="form-row">
+              <div class="form-field"><label>Follow-up Date</label><input type="date" id="st-fu-date"></div>
+              <div class="form-field"><label>Follow-up Time</label><input type="time" id="st-fu-time"></div>
+            </div>
+            <div class="assign-actions">
+              <button class="btn-sm btn-gold" id="st-submit-btn" onclick="submitSelfTask()">Create Task</button>
+              <button class="btn-sm btn-outline" onclick="clearSelfTaskForm()" style="display:none" id="st-cancel-btn">Cancel Edit</button>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+            <input type="text" id="st-search" placeholder="Search task..." oninput="renderSelfTasksList()" style="flex:1;min-width:140px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)">
+            <select id="st-filter-priority" onchange="renderSelfTasksList()" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)"><option value="">All Priority</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
+            <select id="st-filter-status" onchange="renderSelfTasksList()" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)"><option value="">All Status</option><option value="pending">Pending</option><option value="inprogress">In Progress</option><option value="completed">Completed</option><option value="overdue">Overdue</option></select>
+            <select id="st-sort" onchange="renderSelfTasksList()" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)"><option value="newest">Newest</option><option value="oldest">Oldest</option></select>
+          </div>
+
+          <div id="st-list"><div class="loading-state"><div class="spinner"></div>Loading...</div></div>
+        </div>
+      </div>
+
+      <!-- DAILY TASK REVIEW (Founder) -->
+      <div class="panel founder-only" id="panel-dailyreview">
+        <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="date" id="dtr-date-filter" onchange="renderDailyReviewList()" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)">
+          <select id="dtr-emp-filter" onchange="renderDailyReviewList()" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)"><option value="">All Employees</option></select>
+          <select id="dtr-dept-filter" onchange="renderDailyReviewList()" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)"><option value="">All Departments</option></select>
+          <input type="text" id="dtr-search" placeholder="Search..." oninput="renderDailyReviewList()" style="flex:1;min-width:140px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)">
+          <select id="dtr-sort" onchange="renderDailyReviewList()" style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px;color:var(--text)">
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+          </select>
+          <button class="btn-sm btn-outline" style="font-size:12px;padding:7px 14px;color:var(--gold2);border-color:var(--gold3)" onclick="exportDailyUpdatesCSV()">⬇ Export</button>
+        </div>
+        <div id="dtr-list"><div class="loading-state"><div class="spinner"></div>Loading...</div></div>
       </div>
 
       <!-- ATTENDANCE -->
@@ -1495,7 +1578,10 @@ async function initApp() {
   document.getElementById('user-name').textContent     = currentUser.name;
   document.getElementById('user-role-lbl').textContent = roleLabel(currentUser.role);
   document.querySelectorAll('.founder-only').forEach(el => { el.style.display = isFounderLike(currentUser) ? '' : 'none'; });
-
+  const dailyUpdateNavEl = document.getElementById('nav-daily-update');
+  if (dailyUpdateNavEl) dailyUpdateNavEl.style.display = (currentUser.role === 'employee' || currentUser.role === 'founder_assistant') ? '' : 'none';
+  const selfTasksNavEl = document.getElementById('nav-self-tasks');
+  if (selfTasksNavEl) selfTasksNavEl.style.display = (currentUser.role === 'employee' || currentUser.role === 'founder_assistant') ? '' : 'none';
   const h = new Date().getHours();
   document.getElementById('page-title').textContent = `${h < 12 ? 'Good morning' : 'Good evening'}, ${currentUser.name.split(' ')[0]} ✦`;
   document.getElementById('page-sub').textContent   = "Here's your workspace overview";
@@ -1613,8 +1699,7 @@ function renderNotifPanel() {
   window._NOTIF_MAP = {};
   NOTIFICATIONS.forEach(n => { window._NOTIF_MAP[n.id] = n; });
   list.innerHTML = NOTIFICATIONS.map(n => {
-    const icon = n.type === 'task' ? '📋' : n.type === 'proof' ? '📬' : n.type === 'morning' ? '☀️' : n.type === 'motivation' ? '✨' : n.type === 'birthday' ? '🎂' : '💬';
-    return `<div class="notif-item ${n.type}" onclick="handleNotifClick(${n.id})">
+const icon = n.type === 'task' ? '📋' : n.type === 'proof' ? '📬' : n.type === 'morning' ? '☀️' : n.type === 'motivation' ? '✨' : n.type === 'birthday' ? '🎂' : n.type === 'self_task' ? '📝' : '💬';    return `<div class="notif-item ${n.type}" onclick="handleNotifClick(${n.id})">
       <div class="notif-item-title">${icon} ${n.title}</div>
       <div class="notif-item-body">${n.body}</div>
       <div class="notif-item-time">${n.createdAt}</div>
@@ -2373,6 +2458,13 @@ function renderDashboard() {
           <div id="vb-bday-list" style="margin-top:8px;font-size:11px;color:var(--text2);line-height:1.8"></div>
           <div class="vb-sub">Within next 7 days</div>
         </div>
+        <!-- Card 9: Daily Task Updates -->
+        <div class="vb-card clickable" style="--vb-accent:rgba(56,189,248,0.5)" onclick="showPanel('dailyreview',document.getElementById('nav-dailyreview'))">
+          <div class="vb-label"><span class="dot dot-blue"></span>Daily Task Updates</div>
+          <div class="vb-value" id="vb-dtu-cnt" style="font-size:1.2rem">—</div>
+          <div class="vb-goal-bar"><div class="vb-goal-bar-fill" id="vb-dtu-bar" style="width:0%;background:#38BDF8"></div></div>
+          <div class="vb-sub">Team submissions today</div>
+        </div>
       </div>
       <div class="section-header" style="margin-bottom:16px"><div class="section-title">Task Board</div><span class="badge badge-gray">${TASKS.length} total</span></div>
 ${(() => { const vbTasks = TASKS.filter(t => !isAutoTask(t)); return vbTasks.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks assigned yet.</p></div>':renderKanban(vbTasks); })()}`;
@@ -2419,6 +2511,27 @@ ${(() => { const vbTasks = TASKS.filter(t => !isAutoTask(t)); return vbTasks.len
     // Populate project expand lists from PGI_PROJECTS (or fetch if empty)
     populateVbProjectLists();
 
+    // Load Daily Task Update submission stats for VisionBoard card
+    Promise.all([
+      api('GET', '/daily-task-update/all'),
+      api('GET', '/users')
+    ]).then(([updates, users]) => {
+      const todayStr = today_str_client();
+      const pool = users || ALL_USERS;
+      const eligible = pool.filter(u => u.role === 'employee' || u.role === 'founder_assistant');
+      const submittedToday = new Set((updates || []).filter(u => u.date === todayStr).map(u => u.userId));
+      const total = eligible.length;
+      const submitted = eligible.filter(u => submittedToday.has(u.id)).length;
+      const pct = total ? Math.round((submitted / total) * 100) : 0;
+      const cntEl = document.getElementById('vb-dtu-cnt');
+      const barEl = document.getElementById('vb-dtu-bar');
+      if (cntEl) cntEl.textContent = `${submitted} / ${total} Submitted Today`;
+      if (barEl) {
+        barEl.style.width = pct + '%';
+        barEl.style.background = pct >= 100 ? '#22C55E' : pct >= 70 ? '#FBBF24' : '#EF4444';
+      }
+    }).catch(() => {});
+
     // Load upcoming birthday alerts for VisionBoard card
     api('GET', '/birthday-alerts').then(res => {
       const alerts = (res && res.alerts) ? res.alerts : [];
@@ -2445,7 +2558,34 @@ ${(() => { const vbTasks = TASKS.filter(t => !isAutoTask(t)); return vbTasks.len
       return 0;
     });
 const vbSorted = sorted.filter(t => !isAutoTask(t));
-sec.innerHTML = `<div class="section-header" style="margin-bottom:10px"><div class="section-title">My Tasks</div></div><div class="tasks-list">${vbSorted.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>':vbSorted.map(taskCardHTML).join('')}</div>`;  }
+    const showDtuCard = currentUser.role === 'employee' || currentUser.role === 'founder_assistant';
+    const dtuCardHTML = showDtuCard ? `<div class="vb-card" id="dtu-status-card" style="--vb-accent:rgba(56,189,248,0.5);margin-bottom:20px;max-width:260px">
+      <div class="vb-label"><span class="dot dot-blue"></span>Today's Daily Report</div>
+      <div class="vb-value" id="dtu-status-val" style="font-size:1.1rem">—</div>
+    </div>` : '';
+    const selfTasksCardHTML = showDtuCard ? `<div class="vb-card clickable" id="self-tasks-status-card" style="--vb-accent:rgba(251,146,60,0.5);margin-bottom:20px;max-width:260px" onclick="showPanel('selftasks',document.getElementById('nav-self-tasks'))">
+      <div class="vb-label"><span class="dot" style="background:#FB923C"></span>Self Tasks</div>
+      <div class="vb-value" id="self-tasks-status-val" style="font-size:1.1rem">—</div>
+    </div>` : '';
+    sec.innerHTML = dtuCardHTML + selfTasksCardHTML + `<div class="section-header" style="margin-bottom:10px"><div class="section-title">My Tasks</div></div><div class="tasks-list">${vbSorted.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>':vbSorted.map(taskCardHTML).join('')}</div>`;
+    if (showDtuCard) {
+      api('GET', '/daily-task-update/my').then(rows => {
+        const today = today_str_client();
+        const submitted = Array.isArray(rows) && rows.some(r => r.date === today);
+        const valEl = document.getElementById('dtu-status-val');
+        if (valEl) { valEl.textContent = submitted ? '✅ Submitted' : '⏳ Pending'; valEl.style.color = submitted ? 'var(--green)' : '#FBBF24'; }
+      }).catch(()=>{});
+      api('GET', '/self-tasks').then(rows => {
+        const list = Array.isArray(rows) ? rows : [];
+        const today = today_str_client();
+        const pending  = list.filter(t => t.status === 'pending').length;
+        const dueToday = list.filter(t => t.due_date === today && !t.completed).length;
+        const overdue  = list.filter(t => t.status === 'overdue').length;
+        const valEl = document.getElementById('self-tasks-status-val');
+        if (valEl) valEl.innerHTML = `${list.length} Tasks<br><span style="font-size:0.75rem;color:var(--text3)">${pending} Pending · ${dueToday} Due Today · ${overdue} Overdue</span>`;
+      }).catch(()=>{});
+    }
+  }
 }
 
 function renderMyTasks() {
@@ -4323,6 +4463,9 @@ function showPanel(name,navEl) {
     users:['Manage Users','Add or remove team members'],
     ratings:['Rate Employees','Daily performance ratings'],
     notepad:['My Notepad','Your private to-do list'],
+    dailyupdate:['Daily Task Update','Submit your daily work summary'],
+    selftasks:['Self Task Manager','Your private personal tasks & follow-up reminders'],
+    dailyreview:['Daily Task Review','Review team daily task updates'],
     autotasks:['Auto Tasks','Scheduled task templates'],
     mastermind:['PGI Mastermind','Projects, Interns & Intelligence'],
     attmap:['Attendance Map','Today\'s check-in locations']
@@ -4340,6 +4483,9 @@ function showPanel(name,navEl) {
   if(name==='assign')     populateMemberSelect();
   if(name==='ratings')    {loadRatings().then(()=>{renderRatings();setTimeout(drawRatingGraph,80);});}
   if(name==='notepad')    renderNotepad();
+  if(name==='dailyupdate') renderDailyUpdatePanel();
+  if(name==='selftasks') renderSelfTasksPanel();
+  if(name==='dailyreview') renderDailyReviewPanel();
   if(name==='autotasks')  renderAutoTasks();
   if(name==='mastermind') renderMastermind();
 if(name==='attmap')     { renderAttMap().catch(e => console.error('[AttMap] renderAttMap threw:', e)); }  closeSidebar();
@@ -4460,6 +4606,328 @@ async function clearDoneNotes() {
   } catch(e) {
     showToast('Failed to clear completed notes');
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// DAILY TASK UPDATES
+// ═══════════════════════════════════════════════════════════
+let DAILY_UPDATES_MINE = [];
+let DAILY_UPDATES_ALL  = [];
+
+function today_str_client() {
+  return new Date().toISOString().split('T')[0];
+}
+
+let SELF_TASKS = [];
+let _editingSelfTaskId = null;
+
+async function renderSelfTasksPanel() {
+  clearSelfTaskForm();
+  await loadSelfTasks();
+}
+
+async function loadSelfTasks() {
+  const listEl = document.getElementById('st-list');
+  if (listEl) listEl.innerHTML = '<div class="loading-state"><div class="spinner"></div>Loading...</div>';
+  const rows = await api('GET', '/self-tasks');
+  SELF_TASKS = Array.isArray(rows) ? rows : [];
+  renderSelfTasksList();
+}
+
+function _stStatusColor(status) {
+  return { pending:'#FB923C', inprogress:'#38BDF8', completed:'#22C55E', overdue:'#EF4444' }[status] || '#FB923C';
+}
+
+function renderSelfTasksList() {
+  const el = document.getElementById('st-list');
+  if (!el) return;
+  const search = (document.getElementById('st-search')?.value || '').toLowerCase();
+  const priF   = document.getElementById('st-filter-priority')?.value || '';
+  const statF  = document.getElementById('st-filter-status')?.value || '';
+  const sortF  = document.getElementById('st-sort')?.value || 'newest';
+
+  let rows = [...SELF_TASKS];
+  if (search) rows = rows.filter(t => (t.title||'').toLowerCase().includes(search) || (t.description||'').toLowerCase().includes(search));
+  if (priF)   rows = rows.filter(t => t.priority === priF);
+  if (statF)  rows = rows.filter(t => t.status === statF);
+  rows.sort((a,b) => sortF === 'oldest' ? a.id - b.id : b.id - a.id);
+
+  if (!rows.length) { el.innerHTML = '<div class="empty-state"><div class="e-icon">📝</div><p>No self tasks yet. Create one above.</p></div>'; return; }
+
+  el.innerHTML = rows.map(t => {
+    const color = _stStatusColor(t.status);
+    return `<div class="tc fade" style="margin-bottom:10px">
+      <div class="tc-accent" style="background:${color}"></div>
+      <div class="tc-body">
+        <div class="tc-top">
+          <div style="flex:1;min-width:0"><div class="tc-title">${escapeHTML(t.title)}</div><div class="tc-desc">${escapeHTML(t.description||'')}</div></div>
+          <span class="badge" style="background:${color}22;color:${color};border:1px solid ${color}55;text-transform:capitalize">${t.status}</span>
+        </div>
+        <div class="tc-badges">${priBadge(t.priority)}</div>
+        <div class="tc-meta">
+          ${t.due_date ? `<span class="tc-meta-item">📅 Due: ${t.due_date}</span>` : ''}
+          ${t.follow_up_date ? `<span class="tc-meta-item">⏰ Follow-up: ${t.follow_up_date}${t.follow_up_time ? ' '+t.follow_up_time : ''}</span>` : ''}
+          <span class="tc-meta-item">🕐 Created: ${t.created_date||''}</span>
+        </div>
+      </div>
+      <div class="tc-footer">
+        <div></div>
+        <div class="tc-actions">
+          ${!t.completed ? `<button class="btn-tiny confirm" onclick="markSelfTaskComplete(${t.id})">✓ Mark Complete</button>` : ''}
+          <button class="btn-tiny form-btn" onclick="editSelfTask(${t.id})">✏ Edit</button>
+          <button class="btn-tiny danger" onclick="deleteSelfTask(${t.id})">🗑 Delete</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function submitSelfTask() {
+  const title = document.getElementById('st-title').value.trim();
+  if (!title) { showToast('⚠ Task Title is required'); return; }
+  const payload = {
+    title,
+    description: document.getElementById('st-desc').value.trim(),
+    priority: document.getElementById('st-priority').value,
+    due_date: document.getElementById('st-due-date').value,
+    follow_up_date: document.getElementById('st-fu-date').value,
+    follow_up_time: document.getElementById('st-fu-time').value
+  };
+  const btn = document.getElementById('st-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    let res;
+    if (_editingSelfTaskId) {
+      res = await api('PUT', `/self-tasks/${_editingSelfTaskId}`, payload);
+    } else {
+      res = await api('POST', '/self-tasks', payload);
+    }
+    if (!res || res.__error || res.error) { showToast('❌ ' + (res?.error || 'Failed to save')); return; }
+    showToast(_editingSelfTaskId ? '✅ Self task updated' : '✅ Self task created');
+    clearSelfTaskForm();
+    await loadSelfTasks();
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
+function editSelfTask(id) {
+  const t = SELF_TASKS.find(x => x.id === id);
+  if (!t) return;
+  _editingSelfTaskId = id;
+  document.getElementById('st-title').value = t.title || '';
+  document.getElementById('st-desc').value = t.description || '';
+  document.getElementById('st-priority').value = t.priority || 'medium';
+  document.getElementById('st-due-date').value = t.due_date || '';
+  document.getElementById('st-fu-date').value = t.follow_up_date || '';
+  document.getElementById('st-fu-time').value = t.follow_up_time || '';
+  document.getElementById('st-submit-btn').textContent = 'Save Changes';
+  document.getElementById('st-cancel-btn').style.display = '';
+  document.getElementById('panel-selftasks')?.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function clearSelfTaskForm() {
+  _editingSelfTaskId = null;
+  ['st-title','st-desc','st-due-date','st-fu-date','st-fu-time'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
+  const p = document.getElementById('st-priority'); if (p) p.value = 'medium';
+  const b = document.getElementById('st-submit-btn'); if (b) b.textContent = 'Create Task';
+  const c = document.getElementById('st-cancel-btn'); if (c) c.style.display = 'none';
+}
+
+async function markSelfTaskComplete(id) {
+  const res = await api('PATCH', `/self-tasks/${id}/complete`, { completed: true });
+  if (res?.success) { showToast('✅ Task marked complete'); await loadSelfTasks(); }
+}
+
+async function deleteSelfTask(id) {
+  if (!confirm('Delete this self task?')) return;
+  const res = await api('DELETE', `/self-tasks/${id}`);
+  if (res?.success) { showToast('🗑 Deleted'); await loadSelfTasks(); }
+}
+
+async function renderDailyUpdatePanel() {
+  const dateEl = document.getElementById('dtu-date');
+  if (dateEl) dateEl.value = new Date().toLocaleDateString('en-IN',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+  const rows = await api('GET', '/daily-task-update/my') || [];
+  DAILY_UPDATES_MINE = Array.isArray(rows) ? rows : [];
+  const today = today_str_client();
+  const todayRow = DAILY_UPDATES_MINE.find(r => r.date === today);
+  const btn = document.getElementById('dtu-submit-btn');
+  const heading = document.getElementById('dtu-form-heading');
+  if (todayRow) {
+    document.getElementById('dtu-today').value        = todayRow.today_tasks || '';
+    document.getElementById('dtu-tomorrow').value      = todayRow.tomorrow_plan || '';
+    document.getElementById('dtu-hours').value         = todayRow.total_hours ?? '';
+    if (btn) btn.textContent = "Update Today's Report";
+    if (heading) heading.textContent = 'Daily Task Update — Today Submitted';
+  } else {
+    ['dtu-today','dtu-tomorrow','dtu-hours'].forEach(id=>{const e=document.getElementById(id); if(e) e.value='';});
+    if (btn) btn.textContent = 'Submit';
+    if (heading) heading.textContent = 'Daily Task Update';
+  }
+  renderDailyUpdateHistory();
+}
+
+function dtuStatusBadge(row) {
+  if (row.reviewed) return '<span class="badge badge-green">✓ Reviewed</span>';
+  return '<span class="badge badge-blue">Submitted</span>';
+}
+
+function renderDailyUpdateHistory() {
+  const el = document.getElementById('dtu-history-list');
+  if (!el) return;
+  if (!DAILY_UPDATES_MINE.length) { el.innerHTML = '<div class="empty-state"><div class="e-icon">📝</div><p>No updates submitted yet</p></div>'; return; }
+  el.innerHTML = DAILY_UPDATES_MINE.map(r => `
+    <div class="tc fade" style="margin-bottom:10px">
+      <div class="tc-accent" style="background:${r.reviewed?'#22C55E':'#38BDF8'}"></div>
+      <div class="tc-body">
+        <div class="tc-top">
+          <div style="flex:1"><div class="tc-title">${escapeHTML(r.date)}</div></div>
+          <div>${dtuStatusBadge(r)}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-top:6px">
+          <strong>Today:</strong> ${escapeHTML(r.today_tasks||'')}<br>
+          <strong>Achievements:</strong> ${escapeHTML(r.achievements||'')}<br>
+          ${r.blockers ? `<strong>Blockers:</strong> ${escapeHTML(r.blockers)}<br>` : ''}
+          <strong>Tomorrow:</strong> ${escapeHTML(r.tomorrow_plan||'')}<br>
+          <strong>Hours:</strong> ${r.total_hours ?? '—'}
+        </div>
+        ${r.founder_review ? `<div class="tc-info-block tc-info-msg" style="margin-top:10px"><div class="tc-info-label" style="color:#5EE89A">Founder Review</div>${escapeHTML(r.founder_review)}</div>` : ''}
+        <div style="font-size:10px;color:var(--text3);margin-top:8px">Submitted: ${escapeHTML(r.submitted_at||'')}${r.reviewed_at?' · Reviewed: '+escapeHTML(r.reviewed_at):''}</div>
+      </div>
+    </div>`).join('');
+}
+
+async function submitDailyUpdate() {
+  const today_tasks   = document.getElementById('dtu-today').value.trim();
+  const tomorrow_plan = document.getElementById('dtu-tomorrow').value.trim();
+  const total_hours   = document.getElementById('dtu-hours').value;
+  const achievementsField = document.getElementById('dtu-achievements');
+  const achievements = achievementsField ? achievementsField.value.trim() : '';
+  if (!today_tasks || !tomorrow_plan) { showToast("⚠ Please fill Today's Tasks and Tomorrow Plan"); return; }
+  const btn = document.getElementById('dtu-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const res = await api('POST', '/daily-task-update', { today_tasks, achievements, blockers: '', tomorrow_plan, total_hours: total_hours ? parseFloat(total_hours) : null });
+    if (!res || res.__error || res.error) { showToast("❌ " + (res?.error || 'Failed to submit')); return; }    showToast('✅ Daily update saved');
+    await renderDailyUpdatePanel();
+    if (document.getElementById('panel-dashboard')?.classList.contains('active')) renderDashboard();
+  } finally {
+    if (btn) { btn.disabled = false; if (btn.textContent === 'Saving…') btn.textContent = 'Submit'; }
+  }
+}
+
+async function renderDailyReviewPanel() {
+  const rows = await api('GET', '/daily-task-update/all') || [];
+  DAILY_UPDATES_ALL = Array.isArray(rows) ? rows : [];
+  const empSel  = document.getElementById('dtr-emp-filter');
+  const deptSel = document.getElementById('dtr-dept-filter');
+  if (empSel) {
+    const names = [...new Set(DAILY_UPDATES_ALL.map(r=>r.employee_name))].sort();
+    empSel.innerHTML = '<option value="">All Employees</option>' + names.map(n=>`<option value="${escapeHTML(n)}">${escapeHTML(n)}</option>`).join('');
+  }
+  if (deptSel) {
+    const depts = [...new Set(DAILY_UPDATES_ALL.map(r=>r.department).filter(Boolean))].sort();
+    deptSel.innerHTML = '<option value="">All Departments</option>' + depts.map(d=>`<option value="${escapeHTML(d)}">${escapeHTML(d)}</option>`).join('');
+  }
+  renderDailyReviewList();
+}
+
+function renderDailyReviewList() {
+  const el = document.getElementById('dtr-list');
+  if (!el) return;
+  const dateF   = document.getElementById('dtr-date-filter')?.value || '';
+  const empF    = document.getElementById('dtr-emp-filter')?.value || '';
+  const deptF   = document.getElementById('dtr-dept-filter')?.value || '';
+  const searchF = (document.getElementById('dtr-search')?.value || '').toLowerCase();
+  const sortF   = document.getElementById('dtr-sort')?.value || 'newest';
+
+  let rows = [...DAILY_UPDATES_ALL];
+  if (dateF)  rows = rows.filter(r => r.date === dateF);
+  if (empF)   rows = rows.filter(r => r.employee_name === empF);
+  if (deptF)  rows = rows.filter(r => r.department === deptF);
+  if (searchF) rows = rows.filter(r =>
+    (r.employee_name||'').toLowerCase().includes(searchF) ||
+    (r.department||'').toLowerCase().includes(searchF) ||
+    (r.designation||'').toLowerCase().includes(searchF) ||
+    (r.today_tasks||'').toLowerCase().includes(searchF) ||
+    (r.date||'').toLowerCase().includes(searchF)
+  );
+  rows.sort((a,b) => sortF==='oldest' ? a.id-b.id : b.id-a.id);
+
+  if (!rows.length) { el.innerHTML = '<div class="empty-state"><div class="e-icon">📝</div><p>No daily updates found</p></div>'; return; }
+
+  el.innerHTML = rows.map(r => `
+    <div class="tc fade" style="margin-bottom:10px">
+      <div class="tc-accent" style="background:${r.reviewed?'#22C55E':'#38BDF8'}"></div>
+      <div class="tc-body">
+        <div class="tc-top">
+          <div style="flex:1">
+            <div class="tc-title">${escapeHTML(r.employee_name)} <span style="font-weight:400;color:var(--text3);font-size:11px">— ${escapeHTML(r.date)}</span></div>
+            <div style="font-size:11px;color:var(--text3)">${escapeHTML(r.department||'—')} · ${escapeHTML(r.designation||'—')}</div>
+          </div>
+          <div>${r.reviewed ? '<span class="badge badge-green">Reviewed</span>' : '<span class="badge badge-blue">Pending Review</span>'}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-top:8px">
+          <strong>Today:</strong> ${escapeHTML(r.today_tasks||'')}<br>
+          <strong>Achievements:</strong> ${escapeHTML(r.achievements||'')}<br>
+          ${r.blockers ? `<strong>Blockers:</strong> ${escapeHTML(r.blockers)}<br>` : ''}
+          <strong>Tomorrow:</strong> ${escapeHTML(r.tomorrow_plan||'')}<br>
+          <strong>Hours:</strong> ${r.total_hours ?? '—'}
+        </div>
+        <div style="font-size:10px;color:var(--text3);margin-top:6px">Submitted: ${escapeHTML(r.submitted_at||'')}</div>
+        ${r.reviewed
+          ? `<div class="tc-info-block tc-info-msg" style="margin-top:10px"><div class="tc-info-label" style="color:#5EE89A">Reviewed on ${escapeHTML(r.reviewed_at||'')}</div>${escapeHTML(r.founder_review||'')}</div>`
+          : `<div style="margin-top:10px">
+              <textarea id="dtr-note-${r.id}" rows="2" placeholder="Review remarks..." style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;color:var(--text);font-size:12px;font-family:'DM Sans',sans-serif;outline:none"></textarea>
+             </div>`
+        }
+      </div>
+      <div class="tc-footer">
+        <div style="font-size:11px;color:var(--text3)"></div>
+        <div class="tc-actions">
+          ${!r.reviewed ? `<button class="btn-tiny confirm" onclick="saveDailyReview(${r.id})">✓ Save Review</button>` : ''}
+          <button class="btn-tiny danger" onclick="deleteDailyUpdate(${r.id})">🗑 Delete</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+async function saveDailyReview(id) {
+  const noteEl = document.getElementById('dtr-note-'+id);
+  const founder_review = noteEl ? noteEl.value.trim() : '';
+  const res = await api('PUT', `/daily-task-update/review/${id}`, { founder_review, work_status: 'Reviewed' });
+  if (res?.success) {
+    showToast('✅ Review saved');
+    await renderDailyReviewPanel();
+  } else {
+    showToast('❌ ' + (res?.error || 'Failed to save review'));
+  }
+}
+
+async function deleteDailyUpdate(id) {
+  if (!confirm('Delete this daily update? This cannot be undone.')) return;
+  const res = await api('DELETE', `/daily-task-update/${id}`);
+  if (res?.success) {
+    DAILY_UPDATES_ALL = DAILY_UPDATES_ALL.filter(r => r.id !== id);
+    renderDailyReviewList();
+    showToast('🗑 Deleted');
+  }
+}
+
+function exportDailyUpdatesCSV() {
+  const rows = DAILY_UPDATES_ALL;
+  const header = ['Employee','Department','Designation','Date','Today Tasks','Achievements','Blockers','Tomorrow Plan','Hours','Status','Submitted At','Reviewed At','Founder Review'];
+  const csvRows = [header, ...rows.map(r => [
+    r.employee_name, r.department, r.designation, r.date, r.today_tasks, r.achievements,
+    r.blockers, r.tomorrow_plan, r.total_hours, r.reviewed?'Reviewed':'Pending', r.submitted_at, r.reviewed_at, r.founder_review
+  ])];
+  const csv = csvRows.map(row => row.map(v => `"${(v==null?'':String(v)).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = 'Daily_Task_Updates_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  showToast('CSV downloaded ✓');
 }
 
 // ═══════════════════════════════════════════════════════════
