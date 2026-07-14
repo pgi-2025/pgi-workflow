@@ -5026,7 +5026,15 @@ function buildMastermindShell(panel) {
           </div>
           <div class="form-row">
             <div class="form-field"><label>Start Date</label><input type="date" id="np-date"></div>
-            <div class="form-field"><label>Team Members</label><input type="text" id="np-members" placeholder="e.g. Arjun, Priya, Ravi"></div>
+            <div class="form-field" style="position:relative">
+              <label>Team Members</label>
+              <div id="np-members-box" onclick="toggleProjectMembersDropdown(event)"
+                style="background:var(--surface2,#fff);border:1px solid var(--border,#ccc);border-radius:6px;padding:9px 12px;font-size:13px;color:var(--text3);cursor:pointer;user-select:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                Select team members ▾
+              </div>
+              <div id="np-members-dropdown" style="display:none;position:absolute;z-index:50;top:100%;left:0;right:0;margin-top:4px;max-height:220px;overflow-y:auto;background:var(--surface,#fff);border:1px solid var(--border,#ccc);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,0.12)"></div>
+              <div style="font-size:10px;color:var(--text3);margin-top:4px">Click to select multiple people.</div>
+            </div>
           </div>
           <div class="form-field"><label>Description</label><textarea id="np-desc" rows="3" placeholder="Brief project description..."></textarea></div>
           <div class="form-row">
@@ -5456,9 +5464,79 @@ function renderProjectCards() {
   setTimeout(() => animatePgiRings(container), 80);
 }
 
+let PROJECT_MEMBERS_SELECTED = [];
+
+function populateProjectMembersDropdown() {
+  const dd = document.getElementById('np-members-dropdown');
+  if (!dd) return;
+  const people = ALL_USERS.filter(u => u.role !== 'founder');
+  const byDept = {};
+  people.forEach(u => {
+    const dept = u.department || 'Unassigned';
+    if (!byDept[dept]) byDept[dept] = [];
+    byDept[dept].push(u);
+  });
+  const depts = Object.keys(byDept).sort();
+  dd.innerHTML = depts.map(dept => {
+    const items = byDept[dept]
+      .sort((a,b) => (a.name||'').localeCompare(b.name||''))
+      .map(u => {
+        const isSel = PROJECT_MEMBERS_SELECTED.includes(u.name);
+        return `<div onclick="toggleProjectMemberCheck('${escapeHTML(u.name).replace(/'/g,"\\'")}')"
+          style="display:block;width:100%;box-sizing:border-box;text-align:left;padding:8px 12px;font-size:12px;cursor:pointer;
+          ${isSel ? 'background:var(--gold,#D4AF37);color:#fff;font-weight:600' : 'color:var(--text)'}">
+          ${escapeHTML(u.name)}
+        </div>`;
+      }).join('');
+    return `<div style="padding:8px 12px 2px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text3);text-align:left">${escapeHTML(dept)}</div>${items}`;
+  }).join('');
+}
+
+function toggleProjectMemberCheck(name) {
+  if (PROJECT_MEMBERS_SELECTED.includes(name)) {
+    PROJECT_MEMBERS_SELECTED = PROJECT_MEMBERS_SELECTED.filter(v => v !== name);
+  } else {
+    PROJECT_MEMBERS_SELECTED.push(name);
+  }
+  updateProjectMembersBoxLabel();
+  populateProjectMembersDropdown();
+}
+
+function updateProjectMembersBoxLabel() {
+  const box = document.getElementById('np-members-box');
+  if (!box) return;
+  box.textContent = PROJECT_MEMBERS_SELECTED.length ? PROJECT_MEMBERS_SELECTED.join(', ') : 'Select team members ▾';
+  box.style.color = PROJECT_MEMBERS_SELECTED.length ? 'var(--text)' : 'var(--text3)';
+}
+
+function toggleProjectMembersDropdown(e) {
+  if (e) e.stopPropagation();
+  const dd = document.getElementById('np-members-dropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('np-members-dropdown');
+  const box = document.getElementById('np-members-box');
+  if (dd && dd.style.display === 'block' && !dd.contains(e.target) && e.target !== box) {
+    dd.style.display = 'none';
+  }
+});
+
 function showAddProjectForm() {
   const f = document.getElementById('add-project-form');
-  if (f) { f.style.display = f.style.display === 'none' ? 'block' : 'none'; }
+  if (f) {
+    const opening = f.style.display === 'none';
+    f.style.display = opening ? 'block' : 'none';
+    if (opening) {
+      PROJECT_MEMBERS_SELECTED = [];
+      updateProjectMembersBoxLabel();
+      populateProjectMembersDropdown();
+      const dd = document.getElementById('np-members-dropdown');
+      if (dd) dd.style.display = 'none';
+    }
+  }
 }
 
 async function createProject() {
@@ -5467,7 +5545,7 @@ async function createProject() {
   const client   = document.getElementById('np-client').value.trim();
   const status   = document.getElementById('np-status').value;
   const date     = document.getElementById('np-date').value;
-  const members  = document.getElementById('np-members').value.trim();
+  const members  = PROJECT_MEMBERS_SELECTED.join(', ');
   const desc     = document.getElementById('np-desc').value.trim();
   const pctRaw   = parseFloat(document.getElementById('np-progress')?.value ?? '0');
   const progress = isNaN(pctRaw) ? 0 : Math.max(0, Math.min(100, pctRaw));
@@ -5483,7 +5561,8 @@ async function createProject() {
     document.getElementById('np-client').value   = '';
     document.getElementById('np-status').value   = 'Active';
     document.getElementById('np-date').value     = '';
-    document.getElementById('np-members').value  = '';
+    PROJECT_MEMBERS_SELECTED = [];
+    updateProjectMembersBoxLabel();
     document.getElementById('np-desc').value     = '';
     document.getElementById('np-progress').value = '0';
     document.getElementById('add-project-form').style.display = 'none';
