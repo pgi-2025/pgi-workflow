@@ -189,6 +189,27 @@ class Task(db.Model):
     generated_date    = db.Column(db.String(20), nullable=True)
     is_auto           = db.Column(db.Boolean, nullable=True, default=False)
 
+
+class DailyTaskUpdate(db.Model):
+    __tablename__ = "daily_task_updates"
+    id             = db.Column(db.Integer, primary_key=True)
+    userId         = db.Column(db.String(100), nullable=False, index=True)
+    employee_name  = db.Column(db.String(200))
+    department     = db.Column(db.String(100))
+    designation    = db.Column(db.String(100))
+    date           = db.Column(db.String(20), nullable=False, index=True)
+    today_tasks    = db.Column(db.Text)
+    achievements   = db.Column(db.Text)
+    blockers       = db.Column(db.Text)
+    tomorrow_plan  = db.Column(db.Text)
+    total_hours    = db.Column(db.Float)
+    work_status    = db.Column(db.String(30), default="Submitted")
+    founder_review = db.Column(db.Text)
+    reviewed       = db.Column(db.Boolean, default=False)
+    submitted_at   = db.Column(db.String(100))
+    reviewed_at    = db.Column(db.String(100))
+
+
 class Message(db.Model):
     __tablename__ = "messages"
     id        = db.Column(db.String(100), primary_key=True)
@@ -371,6 +392,25 @@ class TaskTemplate(db.Model):
     created_by  = db.Column(db.String(100))
     created_at  = db.Column(db.String(100))
     last_run    = db.Column(db.String(20))                   # YYYY-MM-DD last dispatch
+
+
+class SelfTask(db.Model):
+    __tablename__ = "self_tasks"
+    id                = db.Column(db.Integer, primary_key=True)
+    userId            = db.Column(db.String(100), nullable=False, index=True)
+    title             = db.Column(db.String(300), nullable=False)
+    description       = db.Column(db.Text)
+    priority          = db.Column(db.String(20), default="medium")
+    status            = db.Column(db.String(20), default="pending")
+    created_date      = db.Column(db.String(20))
+    due_date          = db.Column(db.String(20))
+    follow_up_date    = db.Column(db.String(20))
+    follow_up_time    = db.Column(db.String(10))
+    completed         = db.Column(db.Boolean, default=False)
+    completed_at      = db.Column(db.String(100))
+    notification_sent = db.Column(db.Boolean, default=False)
+    created_at        = db.Column(db.String(100))
+    updated_at        = db.Column(db.String(100))
 
 
 # ─────────────────────────────────────────────
@@ -1218,6 +1258,143 @@ def reset_completed_tasks():
         db.session.delete(task)
     db.session.commit()
     return jsonify({"success": True, "deleted": count})
+
+# ─────────────────────────────────────────────
+# DAILY TASK UPDATES
+# ─────────────────────────────────────────────
+
+def daily_update_to_dict(d):
+    return {
+        "id": d.id, "userId": d.userId, "employee_name": d.employee_name,
+        "department": d.department, "designation": d.designation,
+        "date": d.date, "today_tasks": d.today_tasks,
+        "achievements": d.achievements, "blockers": d.blockers,
+        "tomorrow_plan": d.tomorrow_plan, "total_hours": d.total_hours,
+        "work_status": d.work_status, "founder_review": d.founder_review,
+        "reviewed": d.reviewed, "submitted_at": d.submitted_at,
+        "reviewed_at": d.reviewed_at
+    }
+
+
+@app.route("/api/daily-task-update", methods=["POST"])
+@jwt_required()
+def create_daily_task_update():
+    uid  = get_jwt_identity()
+    user = db.session.get(User, uid)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    data          = request.get_json() or {}
+    today_tasks   = (data.get("today_tasks") or "").strip()
+    achievements  = (data.get("achievements") or "").strip()
+    tomorrow_plan = (data.get("tomorrow_plan") or "").strip()
+    if not today_tasks or not tomorrow_plan:
+        return jsonify({"error": "Today's Tasks and Tomorrow Plan are required"}), 400
+    today    = today_str()
+    existing = DailyTaskUpdate.query.filter_by(userId=uid, date=today).first()
+
+    if existing:
+        existing.today_tasks   = today_tasks
+        existing.achievements  = achievements
+        existing.blockers      = (data.get("blockers") or "").strip()
+        existing.tomorrow_plan = tomorrow_plan
+        existing.total_hours   = data.get("total_hours")
+        existing.department    = user.department or existing.department
+        existing.designation   = user.specialty or user.role
+        record = existing
+        is_new = False
+    else:
+        record = DailyTaskUpdate(
+            userId         = uid,
+            employee_name  = user.name,
+            department     = user.department or "",
+            designation    = user.specialty or user.role,
+            date           = today,
+            today_tasks    = today_tasks,
+            achievements   = achievements,
+            blockers       = (data.get("blockers") or "").strip(),
+            tomorrow_plan  = tomorrow_plan,
+            total_hours    = data.get("total_hours"),
+            work_status    = "Submitted",
+            founder_review = None,
+            reviewed       = False,
+            submitted_at   = now_ist().strftime("%b %d, %Y %I:%M %p"),
+            reviewed_at    = None
+        )
+        db.session.add(record)
+        is_new = True
+
+    db.session.flush()
+
+    if is_new:
+        for f in User.query.filter(User.role.in_(["founder", "founder_assistant"])).all():
+            if f.id != uid:
+                make_notif(
+                    userId=f.id, ntype="daily_update",
+                    title="Daily Task Update",
+                    body=f"{user.name} submitted today's Daily Task Update."
+                )
+
+    db.session.commit()
+    return jsonify({"success": True, "update": daily_update_to_dict(record)})
+
+
+@app.route("/api/daily-task-update/my", methods=["GET"])
+@jwt_required()
+def get_my_daily_task_updates():
+    uid  = get_jwt_identity()
+    rows = DailyTaskUpdate.query.filter_by(userId=uid).order_by(DailyTaskUpdate.id.desc()).all()
+    return jsonify([daily_update_to_dict(r) for r in rows])
+
+
+@app.route("/api/daily-task-update/all", methods=["GET"])
+@jwt_required()
+def get_all_daily_task_updates():
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    rows = DailyTaskUpdate.query.order_by(DailyTaskUpdate.id.desc()).all()
+    return jsonify([daily_update_to_dict(r) for r in rows])
+
+
+@app.route("/api/daily-task-update/review/<int:update_id>", methods=["PUT"])
+@jwt_required()
+def review_daily_task_update(update_id):
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    record = db.session.get(DailyTaskUpdate, update_id)
+    if not record:
+        return jsonify({"error": "Update not found"}), 404
+
+    data = request.get_json() or {}
+    record.founder_review = (data.get("founder_review") or "").strip()
+    record.work_status    = data.get("work_status") or "Reviewed"
+    record.reviewed        = True
+    record.reviewed_at     = now_ist().strftime("%b %d, %Y %I:%M %p")
+
+    make_notif(
+        userId=record.userId, ntype="daily_update",
+        title="Daily Task Update Reviewed",
+        body="Your Daily Task Update has been reviewed."
+    )
+
+    db.session.commit()
+    return jsonify({"success": True, "update": daily_update_to_dict(record)})
+
+
+@app.route("/api/daily-task-update/<int:update_id>", methods=["DELETE"])
+@jwt_required()
+def delete_daily_task_update(update_id):
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    record = db.session.get(DailyTaskUpdate, update_id)
+    if not record:
+        return jsonify({"error": "Update not found"}), 404
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({"success": True})
 
 
 # ─────────────────────────────────────────────
@@ -3663,6 +3840,185 @@ def clear_completed_todos():
 
 
 # ─────────────────────────────────────────────
+# SELF TASKS (Employee / Founder Assistant — private personal tasks)
+# ─────────────────────────────────────────────
+
+def self_task_to_dict(t):
+    return {
+        "id": t.id, "userId": t.userId, "title": t.title, "description": t.description,
+        "priority": t.priority, "status": t.status, "created_date": t.created_date,
+        "due_date": t.due_date, "follow_up_date": t.follow_up_date, "follow_up_time": t.follow_up_time,
+        "completed": t.completed, "completed_at": t.completed_at,
+        "notification_sent": t.notification_sent,
+        "created_at": t.created_at, "updated_at": t.updated_at
+    }
+
+
+def _self_task_status(t):
+    if t.completed:
+        return "completed"
+    if t.due_date:
+        try:
+            due = datetime.datetime.strptime(t.due_date, "%Y-%m-%d").date()
+            if due < today_ist():
+                return "overdue"
+        except ValueError:
+            pass
+    return t.status or "pending"
+
+
+def _self_task_permitted(user):
+    return user and user.role in ("employee", "founder_assistant")
+
+
+@app.route("/api/self-tasks", methods=["GET"])
+@jwt_required()
+def get_self_tasks():
+    caller = db.session.get(User, get_jwt_identity())
+    if not _self_task_permitted(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    rows = SelfTask.query.filter_by(userId=caller.id).order_by(SelfTask.id.desc()).all()
+    out = []
+    for t in rows:
+        d = self_task_to_dict(t)
+        d["status"] = _self_task_status(t)
+        out.append(d)
+    return jsonify(out)
+
+
+@app.route("/api/self-tasks", methods=["POST"])
+@jwt_required()
+def create_self_task():
+    caller = db.session.get(User, get_jwt_identity())
+    if not _self_task_permitted(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    data  = request.get_json() or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "Task Title is required"}), 400
+    now_iso_v = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+    t = SelfTask(
+        userId=caller.id, title=title,
+        description=(data.get("description") or "").strip(),
+        priority=(data.get("priority") or "medium").strip().lower(),
+        status="pending",
+        created_date=today_str(),
+        due_date=(data.get("due_date") or "").strip() or None,
+        follow_up_date=(data.get("follow_up_date") or "").strip() or None,
+        follow_up_time=(data.get("follow_up_time") or "").strip() or None,
+        completed=False,
+        notification_sent=False,
+        created_at=now_iso_v,
+        updated_at=now_iso_v
+    )
+    db.session.add(t)
+    db.session.commit()
+    d = self_task_to_dict(t); d["status"] = _self_task_status(t)
+    return jsonify({"success": True, "task": d})
+
+
+@app.route("/api/self-tasks/<int:tid>", methods=["PUT"])
+@jwt_required()
+def update_self_task(tid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not _self_task_permitted(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    t = db.session.get(SelfTask, tid)
+    if not t or t.userId != caller.id:
+        return jsonify({"error": "Task not found"}), 404
+    data = request.get_json() or {}
+    if "title" in data:
+        title = (data["title"] or "").strip()
+        if not title:
+            return jsonify({"error": "Task Title is required"}), 400
+        t.title = title
+    if "description" in data: t.description = (data["description"] or "").strip()
+    if "priority"    in data: t.priority    = (data["priority"] or "medium").strip().lower()
+    if "due_date"    in data: t.due_date    = (data["due_date"] or "").strip() or None
+
+    old_fu_date = t.follow_up_date
+    old_fu_time = t.follow_up_time
+    if "follow_up_date" in data: t.follow_up_date = (data["follow_up_date"] or "").strip() or None
+    if "follow_up_time" in data: t.follow_up_time = (data["follow_up_time"] or "").strip() or None
+    if t.follow_up_date != old_fu_date or t.follow_up_time != old_fu_time:
+        t.notification_sent = False
+
+    t.updated_at = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+    db.session.commit()
+    d = self_task_to_dict(t); d["status"] = _self_task_status(t)
+    return jsonify({"success": True, "task": d})
+
+
+@app.route("/api/self-tasks/<int:tid>", methods=["DELETE"])
+@jwt_required()
+def delete_self_task(tid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not _self_task_permitted(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    t = db.session.get(SelfTask, tid)
+    if not t or t.userId != caller.id:
+        return jsonify({"error": "Task not found"}), 404
+    db.session.delete(t)
+    db.session.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/self-tasks/<int:tid>/complete", methods=["PATCH"])
+@jwt_required()
+def complete_self_task(tid):
+    caller = db.session.get(User, get_jwt_identity())
+    if not _self_task_permitted(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    t = db.session.get(SelfTask, tid)
+    if not t or t.userId != caller.id:
+        return jsonify({"error": "Task not found"}), 404
+    data = request.get_json() or {}
+    completed = bool(data.get("completed", True))
+    t.completed = completed
+    t.status = "completed" if completed else "pending"
+    t.completed_at = now_ist().strftime("%Y-%m-%dT%H:%M:%S") if completed else None
+    t.updated_at = now_ist().strftime("%Y-%m-%dT%H:%M:%S")
+    db.session.commit()
+    d = self_task_to_dict(t); d["status"] = _self_task_status(t)
+    return jsonify({"success": True, "task": d})
+
+
+def check_self_task_reminders():
+    """Runs every minute (existing APScheduler). Checks all SelfTasks with a
+    follow-up date/time whose time has passed and notification_sent == False,
+    creates a reminder using the existing Notification table, then marks
+    notification_sent = True."""
+    with app.app_context():
+        now = now_ist()
+        pending = SelfTask.query.filter_by(notification_sent=False, completed=False).filter(
+            SelfTask.follow_up_date.isnot(None)
+        ).all()
+        fired = 0
+        for t in pending:
+            try:
+                time_str = t.follow_up_time or "00:00"
+                due_dt = datetime.datetime.strptime(f"{t.follow_up_date} {time_str}", "%Y-%m-%d %H:%M")
+                due_dt = due_dt.replace(tzinfo=IST)
+            except ValueError:
+                continue
+            if now >= due_dt:
+                make_notif(
+                    userId=t.userId, ntype="self_task",
+                    title="Self Task Reminder",
+                    body=f"Follow up for: {t.title}\nDate: {t.follow_up_date}  Time: {t.follow_up_time or ''}"
+                )
+                t.notification_sent = True
+                fired += 1
+        if fired:
+            try:
+                db.session.commit()
+                print(f"[SELF TASK] Fired {fired} reminder(s)")
+            except Exception as exc:
+                db.session.rollback()
+                print(f"[SELF TASK] Commit error: {exc}")
+
+
+# ─────────────────────────────────────────────
 # BIRTHDAY ALERTS
 # ─────────────────────────────────────────────
 
@@ -3954,6 +4310,16 @@ if APSCHEDULER_AVAILABLE:
         id="daily_task_templates_9am_job",
         replace_existing=True,
         misfire_grace_time=3600
+    )
+
+# Self Task reminder checker — every minute
+    _scheduler.add_job(
+        check_self_task_reminders,
+        trigger="interval",
+        minutes=1,
+        id="self_task_reminder_job",
+        replace_existing=True,
+        misfire_grace_time=55
     )
 
     _scheduler.start()
