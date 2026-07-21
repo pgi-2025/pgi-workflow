@@ -1689,18 +1689,75 @@ def reset_ratings():
 # Attendance % is never calculated using records older than this date,
 # even though older attendance rows stay untouched in the database.
 ATTENDANCE_START_DATE = datetime.date(2026, 6, 1)
-
-# Company-wide holidays excluded from attendance % calculations, in
-# addition to Sundays. There's no holiday-management UI in the app yet,
-# so this list is maintained directly in code — add more 'YYYY-MM-DD'
-# entries here as needed.
 COMPANY_HOLIDAYS = {
     # "2026-08-15",
 }
 
+# ─────────────────────────────────────────────
+# STEP 6 — ROLE-BASED WORKING DAY CONFIGURATION
+# Single source of truth. Never hardcode Sunday/weekend logic elsewhere —
+# every attendance calculation must read from this.
+# Keys match User.team values used across the app.
+# ─────────────────────────────────────────────
+ROLE_WORKING_RULES = {
+    "technical": {
+        "working_days": [1, 2, 3, 4, 5, 6],
+        "weekly_off":   ["Sunday", "Second Saturday", "Fourth Saturday"],
+    },
+    "content": {
+        "working_days": [1, 2, 3, 4, 5, 6],
+        "weekly_off":   ["Sunday"],
+    },
+    "bizdev": {
+        "working_days": [0, 1, 2, 3, 4, 5, 6],
+        "weekly_off":   [],
+    },
+    "Founder Assistant": {
+        "working_days": [0, 1, 2, 3, 4, 5, 6],
+        "weekly_off":   [],
+    },
+}
+
+# Fallback for teams not in the config above (e.g. interns, trainers with no
+# team) — preserves prior Sunday-only-off behavior rather than guessing.
+_DEFAULT_WORKING_RULE = {"working_days": [1, 2, 3, 4, 5, 6], "weekly_off": ["Sunday"]}
+
+
+def _working_rule_for_team(team):
+    return ROLE_WORKING_RULES.get(team, _DEFAULT_WORKING_RULE)
+
+
+def _nth_saturday_label(date_obj):
+    if date_obj.weekday() != 5:  # Python: Saturday == 5
+        return None
+    nth = (date_obj.day - 1) // 7 + 1
+    return {1: "First Saturday", 2: "Second Saturday", 3: "Third Saturday",
+            4: "Fourth Saturday", 5: "Fifth Saturday"}.get(nth)
+
+
+def is_weekly_off(date_obj, team):
+    off_days = _working_rule_for_team(team)["weekly_off"]
+    if not off_days:
+        return False
+    if date_obj.weekday() == 6 and "Sunday" in off_days:  # Python: Sunday == 6
+        return True
+    sat_label = _nth_saturday_label(date_obj)
+    return bool(sat_label and sat_label in off_days)
+
+
+def is_holiday(date_obj, team):
+    """STEP 3: Sunday/weekly-off → Holiday. Holidays never increase Leave,
+    Absent, Working Days, or reduce Attendance %."""
+    return date_obj.isoformat() in COMPANY_HOLIDAYS or is_weekly_off(date_obj, team)
+
+
+def _user_team_key(user):
+    if user.role == "founder_assistant":
+        return "Founder Assistant"
+    return user.team
+
 
 def _parse_user_date(value):
-    """Parse a user's joining_date (stored as 'YYYY-MM-DD' from <input type=date>) into a date object. Returns None if missing/unparsable."""
     if not value:
         return None
     try:
@@ -1709,12 +1766,9 @@ def _parse_user_date(value):
         return None
 
 
-def get_working_days(start_date, end_date):
-    """
-    Count working days between start_date and end_date inclusive.
-    Excludes Sundays, COMPANY_HOLIDAYS, and any date after today (future dates
-    are never counted even if end_date is in the future).
-    """
+def get_working_days(start_date, end_date, team):
+    """STEP 6: role-aware working-day count. Excludes weekly-off days per
+    team, company holidays, and future dates."""
     if not start_date:
         return 0
     end_date = min(end_date, today_ist())
@@ -1722,14 +1776,15 @@ def get_working_days(start_date, end_date):
         return 0
     count, cur, one_day = 0, start_date, datetime.timedelta(days=1)
     while cur <= end_date:
-        if cur.weekday() != 6 and cur.isoformat() not in COMPANY_HOLIDAYS:  # weekday() Sunday == 6
+        if not is_holiday(cur, team):
             count += 1
         cur += one_day
     return count
 
 
 def get_present_days(user_id, start_date, end_date):
-    """Count distinct days a user was present ('present' or 'completed') between start_date and end_date inclusive. Never counts future dates."""
+    """Present = status in ('present','completed') only. Leave is counted
+    separately — see get_leave_days()."""
     if not start_date:
         return 0
     end_date = min(end_date, today_ist())
@@ -1737,60 +1792,198 @@ def get_present_days(user_id, start_date, end_date):
         return 0
     rows = Attendance.query.filter(
         Attendance.userId == user_id,
-        Attendance.status.in_(["present", "completed", "leave"]),
+        Attendance.status.in_(["present", "completed"]),
         Attendance.date >= start_date.isoformat(),
         Attendance.date <= end_date.isoformat(),
     ).all()
     return len({r.date for r in rows})
 
 
-def attendance_stats_for_user(user):
-    """
-    Full breakdown behind calculate_attendance_percentage() — the single
-    source of truth used by the Attendance Dashboard, Founder Dashboard,
-    Sidebar, Reports, and Excel Export.
+def get_leave_days(user_id, start_date, end_date, team):
+    """STEP 4: Leave increases ONLY for approved leave (status == 'leave',
+    which is only ever set by decide_leave_request on approval). Any date
+    that's a weekly-off/holiday for this team is excluded — holidays never
+    inflate the leave count."""
+    if not start_date:
+        return 0
+    end_date = min(end_date, today_ist())
+    if start_date > end_date:
+        return 0
+    rows = Attendance.query.filter(
+        Attendance.userId == user_id,
+        Attendance.status == "leave",
+        Attendance.date >= start_date.isoformat(),
+        Attendance.date <= end_date.isoformat(),
+    ).all()
+    leave_dates = set()
+    for r in rows:
+        d = _parse_user_date(r.date)
+        if d and not is_holiday(d, team):
+            leave_dates.add(r.date)
+    return len(leave_dates)
 
-    - Floors the calculation start date at ATTENDANCE_START_DATE (2026-06-01).
-    - Employees who joined after that date are calculated from their own
-      joining date instead.
-    - Excludes Sundays, company holidays, and future dates.
-    """
+
+def _attendance_window(user, scope="month"):
+    team = _user_team_key(user)
+    today = today_ist()
     join_date  = _parse_user_date(getattr(user, "joining_date", None))
-    start_date = ATTENDANCE_START_DATE if not join_date else max(ATTENDANCE_START_DATE, join_date)
-    today      = today_ist()
+    floor_date = ATTENDANCE_START_DATE if not join_date else max(ATTENDANCE_START_DATE, join_date)
+    start_date = floor_date if scope == "cumulative" else max(floor_date, today.replace(day=1))
+    return team, start_date, today
 
-    total_working_days = get_working_days(start_date, today)
-    present_days        = get_present_days(user.id, start_date, today)
-    percentage = 0 if total_working_days == 0 else round((present_days / total_working_days) * 100, 2)
 
+def _attendance_stats_for_range(user, team, start_date, end_date):
+
+    
+    """STEP 7: Attendance % = (Present + ApprovedLeave) / WorkingDaysTillToday × 100.
+    Only Absent reduces attendance. Leave and Holiday never reduce it."""
+    working_days = get_working_days(start_date, end_date, team)
+    present_days = get_present_days(user.id, start_date, end_date)
+    leave_days   = get_leave_days(user.id, start_date, end_date, team)
+    absent_days  = max(working_days - present_days - leave_days, 0)
+    percentage   = 0 if working_days == 0 else round(((present_days + leave_days) / working_days) * 100, 2)
     return {
-        "percentage":             percentage,
-        "present_days":           present_days,
-        "total_working_days":     total_working_days,
-        "calculation_start_date": start_date.isoformat(),
+        "percentage":         percentage,
+        "present_days":       present_days,
+        "leave_days":         leave_days,
+        "absent_days":        absent_days,
+        "total_working_days": working_days,
     }
+
+def _month_bounds(year, month):
+    start = datetime.date(year, month, 1)
+    end   = (datetime.date(year+1, 1, 1) if month == 12 else datetime.date(year, month+1, 1)) - datetime.timedelta(days=1)
+    return start, end
+
+
+def get_monthly_attendance_rows(user):
+    team = _user_team_key(user)
+    join_date  = _parse_user_date(getattr(user, "joining_date", None))
+    floor_date = ATTENDANCE_START_DATE if not join_date else max(ATTENDANCE_START_DATE, join_date)
+    today = today_ist()
+    rows, y, m = [], floor_date.year, floor_date.month
+    while (y, m) <= (today.year, today.month):
+        m_start, m_end = _month_bounds(y, m)
+        r_start, r_end = max(m_start, floor_date), min(m_end, today)
+        if r_start <= r_end:
+            stats = _attendance_stats_for_range(user, team, r_start, r_end)
+            rows.append({"month": f"{y:04d}-{m:02d}", "month_label": r_start.strftime("%B %Y"), **stats})
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return rows
+
+
+@app.route("/api/attendance/monthly-report", methods=["GET"])
+@jwt_required()
+def attendance_monthly_report():
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+    users = User.query.filter(User.role != "founder").all()
+    return jsonify([
+        {"userId": u.id, "name": u.name, "team": u.team, "role": u.role,
+         "months": get_monthly_attendance_rows(u)}
+        for u in users
+    ])
+
+
+@app.route("/api/attendance/daily-report", methods=["GET"])
+@jwt_required()
+def attendance_daily_report():
+    """
+    Returns one row per employee per day (Attendance Start Date -> today),
+    for the Export CSV feature only. Does NOT aggregate by month and does
+    NOT touch attendance percentage / cumulative report calculations.
+    """
+    caller = db.session.get(User, get_jwt_identity())
+    if not is_founder_like(caller):
+        return jsonify({"error": "Forbidden"}), 403
+
+    users = User.query.filter(User.role != "founder").all()
+    today = today_ist()
+
+    # Preload attendance rows once for efficiency
+    all_att = Attendance.query.filter(Attendance.date >= ATTENDANCE_START_DATE.isoformat()).all()
+    att_map = {(a.userId, a.date): a for a in all_att}
+
+    result = []
+    one_day = datetime.timedelta(days=1)
+
+    for u in users:
+        team = _user_team_key(u)
+        join_date  = _parse_user_date(getattr(u, "joining_date", None))
+        floor_date = ATTENDANCE_START_DATE if not join_date else max(ATTENDANCE_START_DATE, join_date)
+        if floor_date > today:
+            continue
+
+        cur = floor_date
+        while cur <= today:
+            date_str = cur.isoformat()
+            day_name = cur.strftime("%A")
+
+            if is_holiday(cur, team):
+                result.append({
+                    "employee_name": u.name, "role": u.role, "team": team or "",
+                    "date": date_str, "day": day_name, "status": "Holiday",
+                    "checkin_time": "", "checkout_time": "", "worked_hours": ""
+                })
+            else:
+                att = att_map.get((u.id, date_str))
+                if att and att.status in ("present", "completed"):
+                    result.append({
+                        "employee_name": u.name, "role": u.role, "team": team or "",
+                        "date": date_str, "day": day_name, "status": "Present",
+                        "checkin_time":  att.checkin_time  or "",
+                        "checkout_time": att.checkout_time or "",
+                        "worked_hours":  att.worked_hours if att.worked_hours is not None else ""
+                    })
+                elif att and att.status == "leave":
+                    result.append({
+                        "employee_name": u.name, "role": u.role, "team": team or "",
+                        "date": date_str, "day": day_name, "status": "Approved Leave",
+                        "checkin_time": "", "checkout_time": "", "worked_hours": ""
+                    })
+                else:
+                    result.append({
+                        "employee_name": u.name, "role": u.role, "team": team or "",
+                        "date": date_str, "day": day_name, "status": "Absent",
+                        "checkin_time": "", "checkout_time": "", "worked_hours": ""
+                    })
+            cur += one_day
+
+    return jsonify(result)
+
+
+def attendance_stats_for_user(user, scope="month"):
+    """
+    scope="month" (default): STEP 5 — resets on the 1st of every month.
+    Used by the sidebar, the employee's own attendance card, and the AI assistant.
+    scope="cumulative": STEP 8 — the Cumulative Attendance Report table, spanning
+    every month since ATTENDANCE_START_DATE / joining date. Never resets.
+    """
+    team, start_date, today = _attendance_window(user, scope)
+    stats = _attendance_stats_for_range(user, team, start_date, today)
+    stats["calculation_start_date"] = start_date.isoformat()
+    stats["month"]  = today.strftime("%Y-%m")
+    stats["scope"]  = scope
+    return stats
 
 
 def calculate_attendance_percentage(user):
-    """Reusable function returning just the attendance % (rounded, 2dp) for a user."""
-    return attendance_stats_for_user(user)["percentage"]
+    return attendance_stats_for_user(user, scope="month")["percentage"]
 
 
 @app.route("/api/attendance/percentage", methods=["GET"])
 @jwt_required()
 def attendance_percentage():
-    """
-    Returns attendance % (and the supporting numbers) for every screen to
-    share — computed by the single attendance_stats_for_user() function.
-    Founders/founder-likes get every non-founder employee; everyone else
-    only gets their own stats.
-    """
     caller = db.session.get(User, get_jwt_identity())
     if not caller:
         return jsonify([])
+    scope = request.args.get("scope", "month")
+    if scope not in ("month", "cumulative"):
+        scope = "month"
     users = User.query.filter(User.role != "founder").all() if is_founder_like(caller) else [caller]
     return jsonify([
-        {"userId": u.id, "name": u.name, **attendance_stats_for_user(u)}
+        {"userId": u.id, "name": u.name, **attendance_stats_for_user(u, scope=scope)}
         for u in users
     ])
 
