@@ -2612,16 +2612,34 @@ function renderMyTasks() {
 //  - no record on a future date            -> '-'  (nothing to mark yet)
 //  - no record on a weekend (Sat/Sun)      -> '-'  (non-working day)
 //  - no record on a past/today working day -> 'A'  (failed to mark = absent)
-function classifyAttendanceCell(dateStr, status) {
+const ROLE_WORKING_RULES = {
+  technical: { weeklyOff: ['Sunday','Second Saturday','Fourth Saturday'] },
+  content:   { weeklyOff: ['Sunday'] },
+  bizdev:    { weeklyOff: [] },
+  'Founder Assistant': { weeklyOff: [] },
+};
+const DEFAULT_WEEKLY_OFF = ['Sunday'];
+
+function nthSaturdayLabel(d) {
+  if (d.getDay() !== 6) return null;
+  const nth = Math.floor((d.getDate() - 1) / 7) + 1;
+  return ['First','Second','Third','Fourth','Fifth'][nth-1] + ' Saturday';
+}
+function isHolidayForTeam(dateStr, team) {
+  const off = (ROLE_WORKING_RULES[team] || {}).weeklyOff || DEFAULT_WEEKLY_OFF;
+  const d = new Date(dateStr + 'T00:00:00');
+  if (d.getDay() === 0 && off.includes('Sunday')) return true;
+  const satLabel = nthSaturdayLabel(d);
+  return !!(satLabel && off.includes(satLabel));
+}
+
+function classifyAttendanceCell(dateStr, status, team) {
   if (status === 'present' || status === 'completed') return 'P';
   if (status === 'leave') return 'L';
   if (status === 'absent')  return 'A';
   const todayIso = new Date().toISOString().split('T')[0];
   if (dateStr > todayIso) return '-';
-
-  const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun, 6=Sat
-  if (dow === 0 || dow === 6) return '-';
-
+  if (isHolidayForTeam(dateStr, team)) return '-';
   return 'A';
 }
 
@@ -2664,20 +2682,50 @@ async function renderAttendance() {
       </div>
       <div class="divider"></div>` : '';
 
-    const [hist, pctStats] = await Promise.all([
+    const [hist, pctStats, monthStats] = await Promise.all([
       api('GET', '/attendance/history'),
-      api('GET', '/attendance/percentage'),
+      api('GET', '/attendance/percentage?scope=cumulative'),
+      api('GET', '/attendance/percentage?scope=month'),   // STEP 11: Leave must always reflect current month
     ]);
 
     const statsByUser = {};
     (pctStats || []).forEach(s => { statsByUser[s.userId] = s; });
+    const monthStatsByUser = {};
+    (monthStats || []).forEach(s => { monthStatsByUser[s.userId] = s; });
 
     const userDates = {};
     (hist || []).forEach(r => {
       if (!userDates[r.userId]) userDates[r.userId] = {};
       userDates[r.userId][r.date] = r.status;
     });
-    const allDates  = [...new Set((hist || []).map(r => r.date))].sort();
+
+    // ── Build the FULL date range (attendance start date -> today) so every
+    // previous day's column is always shown, not just dates that happen to
+    // have an Attendance row. Uses calculation_start_date already returned
+    // by the backend percentage endpoint — no hardcoded date, no backend change.
+    function generateFullDateRange(startIso, endIso) {
+      const dates = [];
+      let cur = new Date(startIso + 'T00:00:00');
+      const end = new Date(endIso + 'T00:00:00');
+      while (cur <= end) {
+        dates.push(cur.toISOString().split('T')[0]);
+        cur.setDate(cur.getDate() + 1);
+      }
+      return dates;
+    }
+
+    const startDatesFromStats = (pctStats || [])
+      .map(s => s.calculation_start_date)
+      .filter(Boolean)
+      .sort();
+    const histDates = [...new Set((hist || []).map(r => r.date))].sort();
+    const earliestStart =
+      startDatesFromStats[0] ||
+      histDates[0] ||
+      new Date().toISOString().split('T')[0];
+    const todayIso = new Date().toISOString().split('T')[0];
+
+    const allDates  = generateFullDateRange(earliestStart, todayIso);
     const totalDays = allDates.length;
 
     // Present / Absent / Rate below all come from the same shared backend
@@ -2686,11 +2734,13 @@ async function renderAttendance() {
     // whichever is later — and excluding Sundays, holidays, and future dates.
     const memberStats = all.map(u => {
       const days  = userDates[u.id] || {};
-      const stats = statsByUser[u.id] || { percentage: 0, present_days: 0, total_working_days: 0, calculation_start_date: null };
+      const stats = statsByUser[u.id]      || { percentage: 0, present_days: 0, absent_days: 0, total_working_days: 0, calculation_start_date: null };
+      const mstat = monthStatsByUser[u.id] || { leave_days: 0 };
       const present = stats.present_days;
-      const absent  = Math.max(stats.total_working_days - stats.present_days, 0);
+      const leave   = mstat.leave_days;     // STEP 11: current-month leave, never cumulative
+      const absent  = stats.absent_days;    // STEP 7: backend-computed (working − present − leave)
       const pct     = stats.percentage;
-      return { u, present, absent, pct, days, stats };
+      return { u, present, leave, absent, pct, days, stats };
     }).sort((a, b) => b.pct - a.pct);
 
     const avgPct      = memberStats.length ? parseFloat((memberStats.reduce((s, m) => s + m.pct, 0) / memberStats.length).toFixed(2)) : 0;
@@ -2710,12 +2760,12 @@ async function renderAttendance() {
       `<th style="padding:8px 6px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);white-space:nowrap;border-bottom:1px solid var(--border)">${fmtDate(d)}</th>`
     ).join('');
 
-    const memberRows = memberStats.map(({ u, present, absent, pct, days }) => {
+    const memberRows = memberStats.map(({ u, present, leave, absent, pct, days }) => {
       const c       = ac(u.id);
       const bColor  = barColor(pct);
       const tColor  = barText(pct);
       const dateCells = allDates.map(d => {
-        const cell = classifyAttendanceCell(d, days[d]);
+        const cell = classifyAttendanceCell(d, days[d], u.team);
         if (cell === 'P') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(34,197,94,0.15);color:#15803D;font-size:10px;font-weight:700">P</span></td>`;
         if (cell === 'L') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(56,189,248,0.18);color:#1565C0;font-size:10px;font-weight:700">L</span></td>`;
         if (cell === 'A') return `<td style="padding:6px;text-align:center;border-bottom:1px solid var(--border2)"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(239,68,68,0.12);color:#B91C1C;font-size:10px;font-weight:700">A</span></td>`;
@@ -2735,6 +2785,9 @@ async function renderAttendance() {
         ${dateCells}
         <td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border2)">
           <span style="color:#15803D;font-weight:600;font-size:13px">${present}</span>
+        </td>
+        <td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border2)">
+          <span style="color:#1565C0;font-weight:600;font-size:13px">${leave}</span>
         </td>
         <td style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border2)">
           <span style="color:#B91C1C;font-weight:600;font-size:13px">${absent}</span>
@@ -2802,6 +2855,7 @@ async function renderAttendance() {
                 <th style="padding:9px 8px 9px 18px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;position:sticky;left:0;background:var(--surface);z-index:2;min-width:160px">Member</th>
                 ${dateHeaders}
                 <th style="padding:9px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Present</th>
+                <th style="padding:9px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Leave <span style="font-weight:400;text-transform:none">(this month)</span></th>
                 <th style="padding:9px 10px;text-align:center;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Absent</th>
                 <th style="padding:9px 14px;text-align:left;font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;min-width:100px">Rate</th>
               </tr>
@@ -3131,58 +3185,34 @@ function _drawLeafletMarkers(points) {
 }
 // ─── END ATTENDANCE MAP VIEW ─────────────────────────────────────
 
-function exportAttendanceCSV() {
-  Promise.all([
-    api('GET', '/attendance/history'),
-    api('GET', '/attendance/percentage'),
-  ]).then(([hist, pctStats]) => {
-    if (!hist) { showToast('Could not load data'); return; }
+async function exportAttendanceCSV() {
+  const data = await api('GET', '/attendance/daily-report');
+  if (!data) { showToast('Could not load data'); return; }
 
-    // Build a lookup: userId+date → record
-    const lookup = {};
-    hist.forEach(r => { lookup[r.userId + '|' + r.date] = r; });
+  const header = ['Employee Name', 'Role', 'Team', 'Date', 'Day', 'Status', 'Check In', 'Check Out', 'Worked Hours'];
+  const rows = [header];
 
-    const statsByUser = {};
-    (pctStats || []).forEach(s => { statsByUser[s.userId] = s; });
-
-    const allDates = [...new Set(hist.map(r => r.date))].sort();
-    const members  = getNonFounders();
-
-    const header = ['Employee', 'Date', 'Status', 'Check In', 'Check Out', 'Hours Worked'];
-    const rows   = [header];
-
-    members.forEach(u => {
-      allDates.forEach(date => {
-        const rec = lookup[u.id + '|' + date];
-        if (!rec) return; // skip dates with no record for this user
-
-        const status   = rec.status || 'absent';
-        const checkIn  = rec.checkin_time  ? formatAttendanceTime(rec.checkin_time)  : '--';
-        const checkOut = rec.checkout_time ? formatAttendanceTime(rec.checkout_time) : '--';
-        const hoursWkd = rec.worked_hours  != null ? rec.worked_hours : '--';
-
-        rows.push([u.name, date, status, checkIn, checkOut, hoursWkd]);
-      });
-    });
-
-    // Attendance % summary — same shared calculation used everywhere else
-    // (floored at Jun 1, 2026 or joining date, whichever is later;
-    // excludes Sundays, holidays, and future dates).
-    rows.push([]);
-    rows.push(['Attendance Summary']);
-    rows.push(['Employee', 'Calculation Start', 'Working Days', 'Present Days', 'Attendance %']);
-    members.forEach(u => {
-      const s = statsByUser[u.id] || { calculation_start_date: '--', total_working_days: 0, present_days: 0, percentage: 0 };
-      rows.push([u.name, s.calculation_start_date || '--', s.total_working_days, s.present_days, s.percentage + '%']);
-    });
-
-    const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const a   = document.createElement('a');
-    a.href    = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-    a.download = 'PGI_Attendance_' + new Date().toISOString().split('T')[0] + '.csv';
-    a.click();
-    showToast('CSV downloaded ✓');
+  data.forEach(r => {
+    const isPresent = r.status === 'Present';
+    rows.push([
+      r.employee_name,
+      r.role,
+      r.team,
+      r.date,
+      r.day,
+      r.status,
+      isPresent ? formatAttendanceTime(r.checkin_time)  : '-',
+      isPresent ? formatAttendanceTime(r.checkout_time) : '-',
+      isPresent ? (r.worked_hours ?? '-') : '-'
+    ]);
   });
+
+  const csv = rows.map(row => row.map(v => `"${(v==null?'':String(v)).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = 'PGI_Attendance_Daily_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  showToast('CSV downloaded ✓');
 }
 
 
