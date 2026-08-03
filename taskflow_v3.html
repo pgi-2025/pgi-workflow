@@ -240,6 +240,12 @@ body{background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
 .vb-proj-team{font-size:10px;color:var(--text3)}
 .vb-expand-arrow{font-size:10px;transition:transform 0.2s;display:inline-block;margin-left:4px}
 /* VB Goals edit modal */
+/* Dynamic Vision Board add/edit modal */
+#vb-data-modal{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px)}
+#vb-data-modal.open{display:flex}
+.vb-data-box{background:var(--surface);border:1px solid var(--border2);border-radius:18px;padding:28px 28px 22px;width:100%;max-width:420px;position:relative;box-shadow:0 24px 60px rgba(0,0,0,0.5)}
+.vb-data-box h3{font-family:'DM Serif Display',serif;font-size:1.15rem;color:var(--text);margin:0 0 18px}
+.vb-dyn-card-meta{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text3);margin-top:8px}
 #vb-goals-modal{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,0.65);backdrop-filter:blur(6px)}
 #vb-goals-modal.open{display:flex}
 .vb-goals-box{background:var(--surface);border:1px solid var(--border2);border-radius:18px;padding:28px 28px 22px;width:100%;max-width:400px;position:relative;box-shadow:0 24px 60px rgba(0,0,0,0.5)}
@@ -1381,8 +1387,8 @@ async function api(method, path, body = null) {
     const res = await fetch(API_BASE + path, opts);
     if (!res.ok) {
       const e = await res.json().catch(() => ({}));
-      if (res.status === 401 || res.status === 422) {
-        if (currentUser) { showToast('Session expired. Please log in again.'); doLogout(); }
+      if ((res.status === 401 || res.status === 422) && currentUser) {
+        showToast('Session expired. Please log in again.'); doLogout();
         return null;
       }
       return { __error: true, message: e.error || 'Server error ' + res.status };
@@ -1517,7 +1523,7 @@ async function doLogin() {
   const online = await checkBackend();
   if (!online) { showLoginError('Cannot connect to server. Make sure app.py is running.'); return; }
   const d = await api('POST', '/login', { email, password: pass, role: selectedRole });
-  if (!d)           { showLoginError('Connection failed.'); return; }
+  if (!d)           { showLoginError('Connection failed — check network or server logs.'); return; }
   if (d.__error)    { showLoginError(d.message || 'Login failed'); return; }
   if (d.error)      { showLoginError(d.error); return; }
   API_TOKEN   = d.token;
@@ -1606,7 +1612,8 @@ async function initApp() {
       loadTasks(), loadAttendance(),
       loadMorningMessage(), loadMessages('all'), loadNotifications(),
       isFounderLike(currentUser) ? loadVbGoalsFromApi() : Promise.resolve(),
-      isFounderLike(currentUser) ? loadDailyQuoteStats() : Promise.resolve()
+      isFounderLike(currentUser) ? loadDailyQuoteStats() : Promise.resolve(),
+      loadVbDynamicItems()
     ]);
   }
 
@@ -2289,6 +2296,103 @@ function loadVbGoals() {
   return Object.assign({}, VB_DEFAULTS, _VB_GOALS_CACHE || {});
 }
 
+// ═══════════════════════════════════════════════════════════
+// DYNAMIC VISION BOARD ITEMS (VisionBoardItem — global, DB-backed)
+// ═══════════════════════════════════════════════════════════
+let VB_DYNAMIC_ITEMS = [];
+
+async function loadVbDynamicItems() {
+  const d = await api('GET', '/visionboard');
+  if (Array.isArray(d)) VB_DYNAMIC_ITEMS = d;   // keep last-known-good cache on failed/empty fetch
+  renderVbDynamicGrid();
+}
+
+function renderVbDynamicGrid() {
+  const grid = document.getElementById('vb-dynamic-grid');
+  if (!grid) return;   // safe no-op: container only exists while the panel/branch that owns it is rendered
+  const canEdit = isFounderLike(currentUser);
+  if (!VB_DYNAMIC_ITEMS.length) { grid.innerHTML = ''; return; }
+  grid.innerHTML = VB_DYNAMIC_ITEMS.map(v => {
+    const pct = Math.max(0, Math.min(100, v.progress || 0));
+    const unit = v.unit || '';
+    const curDisp = unit === '₹' ? `₹${formatVbNumber(v.current_value)}` : `${formatVbNumber(v.current_value)}${unit && unit!=='₹' ? unit : ''}`;
+    const tgtDisp = unit === '₹' ? `₹${formatVbNumber(v.target_value)}` : `${formatVbNumber(v.target_value)}${unit && unit!=='₹' ? unit : ''}`;
+    return `<div class="vb-card" style="--vb-accent:rgba(56,189,248,0.5)">
+      <div class="vb-label"><span class="dot dot-blue"></span>${v.icon ? escapeHTML(v.icon) + ' ' : ''}${escapeHTML(v.title)}${canEdit ? `<button class="vb-edit-btn" style="margin-left:auto" onclick="openEditVbDataModal(${v.id})">✏</button>` : ''}</div>
+      <div class="vb-fraction">${curDisp}<span> / ${tgtDisp}</span></div>
+      <div class="vb-goal-bar"><div class="vb-goal-bar-fill" style="width:${pct}%"></div></div>
+      <div class="vb-sub">${pct}%</div>
+      <div class="vb-dyn-card-meta"><span>Updated by ${escapeHTML(v.updated_by || v.created_by || '—')}</span><span>${escapeHTML(v.updated_at || '')}</span></div>
+    </div>`;
+  }).join('');
+}
+
+function formatVbNumber(n) {
+  n = Number(n) || 0;
+  if (n >= 100000) return (n/100000).toFixed(1).replace(/\.0$/,'') + 'L';
+  if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'') + 'K';
+  return n % 1 === 0 ? n.toString() : n.toFixed(1);
+}
+
+function openAddVbDataModal() {
+  document.getElementById('vbd-heading').textContent = '+ Add New Data';
+  document.getElementById('vbd-id').value = '';
+  document.getElementById('vbd-title').value = '';
+  document.getElementById('vbd-current').value = '';
+  document.getElementById('vbd-target').value = '';
+  document.getElementById('vbd-unit').value = '';
+  document.getElementById('vbd-icon').value = '';
+  document.getElementById('vbd-order').value = VB_DYNAMIC_ITEMS.length;
+  document.getElementById('vb-data-modal').classList.add('open');
+}
+
+function openEditVbDataModal(id) {
+  const item = VB_DYNAMIC_ITEMS.find(v => v.id === id);
+  if (!item) return;
+  document.getElementById('vbd-heading').textContent = '✏ Edit Data';
+  document.getElementById('vbd-id').value = item.id;
+  document.getElementById('vbd-title').value = item.title;
+  document.getElementById('vbd-current').value = item.current_value;
+  document.getElementById('vbd-target').value = item.target_value;
+  document.getElementById('vbd-unit').value = item.unit || '';
+  document.getElementById('vbd-icon').value = item.icon || '';
+  document.getElementById('vbd-order').value = item.display_order || 0;
+  document.getElementById('vb-data-modal').classList.add('open');
+}
+
+function closeVbDataModal() {
+  document.getElementById('vb-data-modal').classList.remove('open');
+}
+
+async function saveVbDataItem() {
+  const id = document.getElementById('vbd-id').value;
+  const payload = {
+    title: document.getElementById('vbd-title').value.trim(),
+    current_value: parseFloat(document.getElementById('vbd-current').value) || 0,
+    target_value: parseFloat(document.getElementById('vbd-target').value) || 0,
+    unit: document.getElementById('vbd-unit').value.trim(),
+    icon: document.getElementById('vbd-icon').value.trim(),
+    display_order: parseInt(document.getElementById('vbd-order').value) || 0,
+  };
+  if (!payload.title) { showToast('⚠ Goal Name is required'); return; }
+  const res = id
+    ? await api('PUT', `/visionboard/${id}`, payload)
+    : await api('POST', '/visionboard', payload);
+  if (res && !res.__error && !res.error) {
+    showToast(id ? '✅ Vision Board item updated' : '✅ Vision Board item added');
+    closeVbDataModal();
+    await loadVbDynamicItems();
+  } else {
+    showToast('❌ ' + (res?.message || res?.error || 'Failed to save'));
+  }
+}
+
+async function deleteVbDataItem(id) {
+  if (!confirm('Remove this Vision Board card?')) return;
+  const res = await api('DELETE', `/visionboard/${id}`);
+  if (res?.success) { showToast('🗑 Removed'); await loadVbDynamicItems(); }
+}
+
 async function loadVbGoalsFromApi() {
   try {
     const d = await api('GET', '/dashboard/goals');
@@ -2399,8 +2503,12 @@ function renderDashboard() {
     sec.innerHTML = `
       <div class="section-header" style="margin-bottom:16px">
         <div class="section-title">📊 Vision Board</div>
-        <button class="btn-sm btn-outline" style="font-size:11px;padding:5px 12px" onclick="openVbGoalsModal()">⚙ Edit Goals</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-sm btn-outline" style="font-size:11px;padding:5px 12px" onclick="openVbGoalsModal()">⚙ Edit Goals</button>
+          <button class="btn-sm btn-gold founder-only" style="font-size:11px;padding:5px 12px" onclick="openAddVbDataModal()">+ Add New Data</button>
+        </div>
       </div>
+      <div class="vb-grid" id="vb-dynamic-grid"></div>
       <div class="vb-grid" id="vb-cards-grid">
         <!-- Card 1: Employees -->
         <div class="vb-card" style="--vb-accent:rgba(34,197,94,0.5)">
@@ -2468,6 +2576,11 @@ function renderDashboard() {
       </div>
       <div class="section-header" style="margin-bottom:16px"><div class="section-title">Task Board</div><span class="badge badge-gray">${TASKS.length} total</span></div>
 ${(() => { const vbTasks = TASKS.filter(t => !isAutoTask(t)); return vbTasks.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks assigned yet.</p></div>':renderKanban(vbTasks); })()}`;
+    // renderDashboard() just rebuilt #vb-dynamic-grid as an empty placeholder —
+    // repaint it immediately from the already-loaded cache so dynamic Vision
+    // Board cards never disappear when renderDashboard() re-runs (task polling,
+    // task actions, etc.) between fetches from the backend.
+    renderVbDynamicGrid();
     // Load async stats (project counts, interns, employees)
     api('GET', '/dashboard-stats').then(stats => {
       if (!stats) return;
@@ -2567,7 +2680,11 @@ const vbSorted = sorted.filter(t => !isAutoTask(t));
       <div class="vb-label"><span class="dot" style="background:#FB923C"></span>Self Tasks</div>
       <div class="vb-value" id="self-tasks-status-val" style="font-size:1.1rem">—</div>
     </div>` : '';
-    sec.innerHTML = dtuCardHTML + selfTasksCardHTML + `<div class="section-header" style="margin-bottom:10px"><div class="section-title">My Tasks</div></div><div class="tasks-list">${vbSorted.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>':vbSorted.map(taskCardHTML).join('')}</div>`;
+    sec.innerHTML = dtuCardHTML + selfTasksCardHTML + `<div class="section-header" style="margin-bottom:10px"><div class="section-title">📊 Vision Board</div></div><div class="vb-grid" id="vb-dynamic-grid"></div><div class="section-header" style="margin-bottom:10px"><div class="section-title">My Tasks</div></div><div class="tasks-list">${vbSorted.length===0?'<div class="empty-state"><div class="e-icon">📋</div><p>No tasks yet</p></div>':vbSorted.map(taskCardHTML).join('')}</div>`;
+    // Employee branch just rebuilt #vb-dynamic-grid as an empty placeholder —
+    // repaint it immediately from the already-loaded cache, same as the
+    // founder branch does, so employees see the same shared Vision Board cards.
+    renderVbDynamicGrid();
     if (showDtuCard) {
       api('GET', '/daily-task-update/my').then(rows => {
         const today = today_str_client();
@@ -4508,7 +4625,7 @@ function showPanel(name,navEl) {
   if(name==='teams')      {currentTeamView=null;currentMemberView=null;renderTeams();}
   if(name==='messages')   {renderChannelTabs();loadMessages(currentChannel).then(renderMessages);}
   if(name==='users')      renderUsersList();
-  if(name==='dashboard')  renderDashboard();
+  if(name==='dashboard')  { renderDashboard(); loadVbDynamicItems(); }
   if(name==='tasks')      renderMyTasks();
   if(name==='assign')     populateMemberSelect();
   if(name==='ratings')    {loadRatings().then(()=>{renderRatings();setTimeout(drawRatingGraph,80);});}
@@ -6900,6 +7017,48 @@ function stopAllVoiceActivity() {
     <div class="vb-goals-footer">
       <button class="btn-sm btn-outline" onclick="closeVbGoalsModal()">Cancel</button>
       <button class="btn-sm btn-gold" onclick="applyVbGoals()">Save Goals</button>
+    </div>
+  </div>
+</div>
+
+<!-- DYNAMIC VISION BOARD — ADD / EDIT DATA MODAL -->
+<div id="vb-data-modal" role="dialog" aria-modal="true" aria-label="Add Vision Board Data"
+     onclick="if(event.target===this)closeVbDataModal()">
+  <div class="vb-data-box">
+    <button class="vb-goals-close" onclick="closeVbDataModal()" title="Close">✕</button>
+    <h3 id="vbd-heading">+ Add New Data</h3>
+    <input type="hidden" id="vbd-id">
+    <div class="vb-goal-row">
+      <label>Goal Name</label>
+      <input type="text" id="vbd-title" placeholder="e.g. Monthly Revenue">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="vb-goal-row">
+        <label>Current Value</label>
+        <input type="number" id="vbd-current" placeholder="e.g. 320000">
+      </div>
+      <div class="vb-goal-row">
+        <label>Target Value</label>
+        <input type="number" id="vbd-target" placeholder="e.g. 1000000">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="vb-goal-row">
+        <label>Unit</label>
+        <input type="text" id="vbd-unit" placeholder="₹, %, Projects, Clients...">
+      </div>
+      <div class="vb-goal-row">
+        <label>Icon (optional)</label>
+        <input type="text" id="vbd-icon" placeholder="e.g. 💰">
+      </div>
+    </div>
+    <div class="vb-goal-row">
+      <label>Display Order</label>
+      <input type="number" id="vbd-order" placeholder="0">
+    </div>
+    <div class="vb-goals-footer">
+      <button class="btn-sm btn-outline" onclick="closeVbDataModal()">Cancel</button>
+      <button class="btn-sm btn-gold" onclick="saveVbDataItem()">Save</button>
     </div>
   </div>
 </div>
