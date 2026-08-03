@@ -378,6 +378,45 @@ class DashboardGoal(db.Model):
     key   = db.Column(db.String(100), primary_key=True)
     value = db.Column(db.String(100), nullable=False, default="0")
 
+
+class VisionBoardItem(db.Model):
+    __tablename__ = "vision_board_items"
+    id             = db.Column(db.Integer, primary_key=True)
+    title          = db.Column(db.String(200), nullable=False)
+    current_value  = db.Column(db.Float, nullable=False, default=0)
+    target_value   = db.Column(db.Float, nullable=False, default=0)
+    unit           = db.Column(db.String(30), default="")
+    icon           = db.Column(db.String(50), nullable=True)
+    display_order  = db.Column(db.Integer, default=0)
+    created_by     = db.Column(db.String(100))
+    updated_by     = db.Column(db.String(100))
+    created_at     = db.Column(db.String(100))
+    updated_at     = db.Column(db.String(100))
+    active         = db.Column(db.Boolean, default=True)
+
+
+def visionboard_item_to_dict(v):
+    progress = 0
+    try:
+        if v.target_value and float(v.target_value) != 0:
+            progress = round((float(v.current_value) / float(v.target_value)) * 100, 1)
+    except (TypeError, ZeroDivisionError):
+        progress = 0
+    return {
+        "id": v.id,
+        "title": v.title,
+        "current_value": v.current_value,
+        "target_value": v.target_value,
+        "unit": v.unit,
+        "icon": v.icon,
+        "display_order": v.display_order,
+        "progress": progress,
+        "created_by": v.created_by,
+        "updated_by": v.updated_by,
+        "created_at": v.created_at,
+        "updated_at": v.updated_at,
+    }
+
 class TaskTemplate(db.Model):
     __tablename__ = "task_templates"
     id          = db.Column(db.Integer, primary_key=True)
@@ -661,10 +700,17 @@ def login():
             User.role == role
         ).first()
 
+    print(f"[LOGIN DEBUG] email={email!r} role={role!r}")
+    print(f"[LOGIN DEBUG] user_found={bool(user)} db_role={(user.role if user else None)!r}")
     if not user:
+        print("[LOGIN DEBUG] result: 404 User not found")
         return jsonify({"error": "User not found"}), 404
-    if not check_password_hash(user.password, password):
+    pw_ok = check_password_hash(user.password, password)
+    print(f"[LOGIN DEBUG] password_check_result={pw_ok}")
+    if not pw_ok:
+        print("[LOGIN DEBUG] result: 401 Invalid password")
         return jsonify({"error": "Invalid password"}), 401
+    print("[LOGIN DEBUG] result: success, issuing token")
 
     token = create_access_token(identity=user.id)
     return jsonify({
@@ -3196,6 +3242,108 @@ def generate_daily_tasks():
         except Exception as exc:
             db.session.rollback()
             print(f"[DAILY TASK 9AM] Commit error: {exc}")
+
+@app.route("/api/visionboard", methods=["GET"])
+@jwt_required()
+def get_visionboard_items():
+    rows = VisionBoardItem.query.filter_by(active=True).order_by(VisionBoardItem.display_order.asc(), VisionBoardItem.id.asc()).all()
+    return jsonify([visionboard_item_to_dict(v) for v in rows])
+
+
+@app.route("/api/visionboard", methods=["POST"])
+@jwt_required()
+def create_visionboard_item():
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Only founder can add Vision Board data"}), 403
+    data = request.get_json() or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"error": "Goal Name is required"}), 400
+    try:
+        current_value = float(data.get("current_value", 0))
+        target_value  = float(data.get("target_value", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Current/Target value must be numbers"}), 400
+    try:
+        display_order = int(data.get("display_order", 0))
+    except (TypeError, ValueError):
+        display_order = 0
+
+    item = VisionBoardItem(
+        title=title,
+        current_value=current_value,
+        target_value=target_value,
+        unit=(data.get("unit") or "").strip(),
+        icon=(data.get("icon") or "").strip() or None,
+        display_order=display_order,
+        created_by=caller.name,
+        updated_by=caller.name,
+        created_at=now_ist().strftime("%b %d, %Y %I:%M %p"),
+        updated_at=now_ist().strftime("%b %d, %Y %I:%M %p"),
+        active=True
+    )
+    db.session.add(item)
+    db.session.commit()
+    return jsonify({"success": True, "item": visionboard_item_to_dict(item)})
+
+
+@app.route("/api/visionboard/<int:item_id>", methods=["PUT"])
+@jwt_required()
+def update_visionboard_item(item_id):
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Only founder can edit Vision Board data"}), 403
+    item = db.session.get(VisionBoardItem, item_id)
+    if not item or not item.active:
+        return jsonify({"error": "Not found"}), 404
+
+    data = request.get_json() or {}
+    if "title" in data:
+        title = (data["title"] or "").strip()
+        if not title:
+            return jsonify({"error": "Goal Name cannot be empty"}), 400
+        item.title = title
+    if "current_value" in data:
+        try:
+            item.current_value = float(data["current_value"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid current_value"}), 400
+    if "target_value" in data:
+        try:
+            item.target_value = float(data["target_value"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid target_value"}), 400
+    if "unit" in data:
+        item.unit = (data["unit"] or "").strip()
+    if "icon" in data:
+        item.icon = (data["icon"] or "").strip() or None
+    if "display_order" in data:
+        try:
+            item.display_order = int(data["display_order"])
+        except (TypeError, ValueError):
+            pass
+
+    item.updated_by = caller.name
+    item.updated_at = now_ist().strftime("%b %d, %Y %I:%M %p")
+    db.session.commit()
+    return jsonify({"success": True, "item": visionboard_item_to_dict(item)})
+
+
+@app.route("/api/visionboard/<int:item_id>", methods=["DELETE"])
+@jwt_required()
+def delete_visionboard_item(item_id):
+    caller = db.session.get(User, get_jwt_identity())
+    if not caller or not is_founder_like(caller):
+        return jsonify({"error": "Only founder can delete Vision Board data"}), 403
+    item = db.session.get(VisionBoardItem, item_id)
+    if not item:
+        return jsonify({"error": "Not found"}), 404
+    item.active = False
+    item.updated_by = caller.name
+    item.updated_at = now_ist().strftime("%b %d, %Y %I:%M %p")
+    db.session.commit()
+    return jsonify({"success": True})
 
 @app.route("/api/dashboard/goals", methods=["GET"])
 @jwt_required()
