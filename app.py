@@ -243,6 +243,21 @@ class QuoteDeliveryLog(db.Model):
     provider_response = db.Column(db.Text)
 
 
+class WhatsAppWebhookEvent(db.Model):
+    """Records failed/undeliverable Meta WhatsApp template statuses received
+    via the /api/whatsapp/webhook status callback (e.g. error 131047)."""
+    __tablename__ = "whatsapp_webhook_events"
+    id            = db.Column(db.Integer, primary_key=True)
+    wa_message_id = db.Column(db.String(200))
+    recipient     = db.Column(db.String(30))
+    status        = db.Column(db.String(50))
+    error_code    = db.Column(db.String(20))
+    error_title   = db.Column(db.String(300))
+    error_message = db.Column(db.Text)
+    error_details = db.Column(db.Text)
+    received_at   = db.Column(db.String(100))
+
+
 class Attendance(db.Model):
     __tablename__ = "attendance"
     id            = db.Column(db.Integer, primary_key=True)
@@ -1068,6 +1083,21 @@ def create_task_record(assignee_id, title, desc, priority, due, msg, assigned_by
         title="New Task Assigned",
         body='"' + task.title + '" was assigned to you by ' + (assigner.name if assigner else "the founder") + '. Due: ' + (task.due or "TBD")
     )
+
+    # WhatsApp (best-effort — must never make task creation fail)
+    try:
+        assignee = db.session.get(User, assignee_id)
+        employee_phone = (assignee.phone or "").strip() if assignee else ""
+        employee_name  = assignee.name if assignee else ""
+        if employee_phone:
+            send_workflow_whatsapp(
+                employee_phone,
+                "task_assignment",
+                [(employee_name or "there").split()[0], task.title, task.due or "TBD"]
+            )
+    except Exception as e:
+        print(f"[WA] task_assignment send failed for {assignee_id}: {e}")
+
     return task
 
 
@@ -1147,6 +1177,21 @@ def update_task_status(task_id):
     data = request.get_json()
     task.status = data.get("status")
     db.session.commit()
+
+    # WhatsApp (best-effort — must never make the status update fail)
+    try:
+        assignee = db.session.get(User, task.assignedTo)
+        employee_phone = (assignee.phone or "").strip() if assignee else ""
+        employee_name  = assignee.name if assignee else ""
+        if employee_phone:
+            send_workflow_whatsapp(
+                employee_phone,
+                "task_update",
+                [employee_name, f'"{task.title}" — {task.status}', ""]
+            )
+    except Exception as e:
+        print(f"[WA] task_update send failed for task {task_id}: {e}")
+
     return jsonify({"success": True})
 
 
@@ -1176,6 +1221,23 @@ def submit_proof(task_id):
                 body=submitter.name + ' submitted proof for "' + task.title + '"'
             )
     db.session.commit()
+
+    # WhatsApp (best-effort — must never make proof submission fail).
+    # Mirrors the make_notif() recipients above: founders are told a proof came in.
+    try:
+        for f in founder_accounts:
+            if f.id == uid:
+                continue
+            founder_phone = (f.phone or "").strip()
+            if founder_phone:
+                send_workflow_whatsapp(
+                    founder_phone,
+                    "task_update",
+                    [f.name, f'"{task.title}" — proof submitted', ""]
+                )
+    except Exception as e:
+        print(f"[WA] task_update (proof) send failed for task {task_id}: {e}")
+
     return jsonify({"success": True})
 
 
@@ -1217,6 +1279,21 @@ def verify_task(task_id):
         )
 
     db.session.commit()
+
+    # WhatsApp (best-effort — must never make the verify action fail)
+    try:
+        assignee = db.session.get(User, task.assignedTo)
+        employee_phone = (assignee.phone or "").strip() if assignee else ""
+        employee_name  = assignee.name if assignee else ""
+        if employee_phone:
+            send_workflow_whatsapp(
+                employee_phone,
+                "task_update",
+                [employee_name, f'"{task.title}" — {task.status}', task.rejection_reason or ""]
+            )
+    except Exception as e:
+        print(f"[WA] task_update (verify) send failed for task {task_id}: {e}")
+
     return jsonify({"success": True})
 
 
@@ -2185,6 +2262,21 @@ def checkin_attendance():
         db.session.add(att)
 
     db.session.commit()
+
+    # WhatsApp (best-effort — must never make check-in fail)
+    try:
+        emp = db.session.get(User, uid)
+        employee_phone = (emp.phone or "").strip() if emp else ""
+        employee_name  = emp.name if emp else ""
+        if employee_phone:
+            send_workflow_whatsapp(
+                employee_phone,
+                "attendance",
+                [employee_name, att.status, att.checkin_time or ""]
+            )
+    except Exception as e:
+        print(f"[WA] attendance (checkin) send failed for {uid}: {e}")
+
     return jsonify({
         "success":            True,
         "status":             att.status,
@@ -2233,6 +2325,21 @@ def checkout_attendance():
     att.checkout_longitude = lng
 
     db.session.commit()
+
+    # WhatsApp (best-effort — must never make check-out fail)
+    try:
+        emp = db.session.get(User, uid)
+        employee_phone = (emp.phone or "").strip() if emp else ""
+        employee_name  = emp.name if emp else ""
+        if employee_phone:
+            send_workflow_whatsapp(
+                employee_phone,
+                "attendance",
+                [employee_name, att.status, att.checkout_time or ""]
+            )
+    except Exception as e:
+        print(f"[WA] attendance (checkout) send failed for {uid}: {e}")
+
     return jsonify({
         "success":             True,
         "status":              att.status,
@@ -2341,10 +2448,26 @@ def create_leave_request():
     )
     db.session.add(lr)
     db.session.commit()
+    requester = db.session.get(User, uid)
     for f in User.query.filter(User.role.in_(["founder", "founder_assistant"])).all():
         make_notif(userId=f.id, ntype="leave", title="📝 Leave Request",
-                   body=f"{db.session.get(User, uid).name} requested leave for {date}")
+                   body=f"{requester.name} requested leave for {date}")
     db.session.commit()
+
+    # WhatsApp (best-effort — must never make the leave request fail).
+    # Mirrors the make_notif() recipients above: founders are told a request came in.
+    try:
+        for f in User.query.filter(User.role.in_(["founder", "founder_assistant"])).all():
+            founder_phone = (f.phone or "").strip()
+            if founder_phone:
+                send_workflow_whatsapp(
+                    founder_phone,
+                    "leave",
+                    [requester.name, "requested", lr.reason or ""]
+                )
+    except Exception as e:
+        print(f"[WA] leave (request) send failed for {uid}: {e}")
+
     return jsonify({"success": True, "id": lr.id})
 
 
@@ -2381,6 +2504,21 @@ def decide_leave_request(lid):
         body=f"Your leave for {lr.date} was {lr.status} by {caller.name}."
     )
     db.session.commit()
+
+    # WhatsApp (best-effort — must never make the leave decision fail)
+    try:
+        employee = db.session.get(User, lr.userId)
+        employee_phone = (employee.phone or "").strip() if employee else ""
+        employee_name  = employee.name if employee else ""
+        if employee_phone:
+            send_workflow_whatsapp(
+                employee_phone,
+                "leave",
+                [employee_name, lr.status, lr.reason or ""]
+            )
+    except Exception as e:
+        print(f"[WA] leave (decision) send failed for leave {lid}: {e}")
+
     return jsonify({"success": True, "status": lr.status})
 
 @app.route("/api/leave-requests/<int:lid>", methods=["DELETE"])
@@ -3727,14 +3865,34 @@ def send_daily_quote_email(recipient_email, quote_text, author):
 def normalize_phone_e164(phone):
     """
     Normalize a raw phone string to E.164 format (+<countrycode><number>).
+    Indian-number aware: a bare 10-digit number is assumed to be an Indian
+    mobile number and gets +91 prefixed; numbers that already carry a
+    country code (with or without '+') are left as-is (never double-prefixed).
     Returns (normalized_number_or_None, error_reason_or_None).
     """
     if not phone or not phone.strip():
         return None, "no_phone"
 
+    # Strip spaces, hyphens, dots and brackets.
     cleaned = re.sub(r"[\s\-\.\(\)]", "", phone.strip())
-    if not cleaned.startswith("+"):
-        cleaned = "+" + cleaned.lstrip("+")
+
+    if cleaned.startswith("00"):
+        cleaned = "+" + cleaned[2:]
+
+    if cleaned.startswith("+"):
+        digits = cleaned[1:]
+    else:
+        digits = cleaned.lstrip("+")
+        if re.fullmatch(r"\d{10}", digits):
+            # Bare 10-digit number -> assume Indian mobile, prefix +91.
+            digits = "91" + digits
+        # else: already has a country code (e.g. "919876543210") — leave as-is.
+
+    # Guard: never end up with a duplicated 91 country code (+9191XXXXXXXXXX).
+    if digits.startswith("9191") and len(digits) == 14:
+        digits = digits[2:]
+
+    cleaned = "+" + digits
 
     # E.164: '+' followed by 8–15 digits, first digit 1-9
     if not re.fullmatch(r"\+[1-9]\d{7,14}", cleaned):
@@ -3754,30 +3912,107 @@ def build_daily_quote_message(quote_text):
     )
 
 
-def _send_whatsapp_via_meta(phone_clean, message):
+# ─────────────────────────────────────────────
+# WHATSAPP TEMPLATE CONFIG (Meta approved templates — all workflow WhatsApp
+# messages go out as "type": "template", never free-text "type": "text")
+# ─────────────────────────────────────────────
+
+# Central map: internal template_key -> exact Meta-approved template name.
+# Do not duplicate these names anywhere else in the file.
+WHATSAPP_TEMPLATES = {
+    "task_assignment": "task_assignment",
+    "task_update":      "task_update",
+    "attendance":        "attendance_notification",
+    "leave":              "leave_notification",
+    "meeting":             "meeting_remainder",
+    "birthday":             "birthday_wish",
+    "daily_quote":           "daily_quote",
+    "announcement":           "announcement"
+}
+
+# Documents the ordered {{1}}, {{2}}, ... body parameters each Meta template
+# expects, so every call site builds its `parameters` list the same way.
+# CONFIRMED = given explicitly in the change request. TODO = the exact Meta
+# template body text/order was not provided, so the list below is this
+# integration's best-guess ordering — verify against the live template in
+# Meta Business Manager before relying on it in production.
+WHATSAPP_TEMPLATE_PARAMS = {
+    # CONFIRMED: {{1}} employee first name, {{2}} task name, {{3}} due date
+    "task_assignment":        ["employee_first_name", "task_name", "due_date"],
+    # CONFIRMED: {{1}} employee name, {{2}} task/status update, {{3}} remarks
+    "task_update":             ["employee_name", "task_status_or_update", "remarks"],
+    # CONFIRMED: {{1}} employee name, {{2}} attendance status, {{3}} recorded time
+    "attendance_notification":  ["employee_name", "attendance_status", "recorded_time"],
+    # CONFIRMED: {{1}} employee name, {{2}} Approved/Rejected/etc, {{3}} leave reason
+    "leave_notification":        ["employee_name", "leave_status", "leave_reason"],
+    # CONFIRMED: {{1}} employee name, {{2}} meeting topic, {{3}} meeting time
+    # TODO: no existing meeting-reminder backend found in app.py — not wired to any route
+    "meeting_remainder":          ["employee_name", "meeting_topic", "meeting_time"],
+    # CONFIRMED: {{1}} employee name only
+    "birthday_wish":                ["employee_name"],
+    # CONFIRMED: {{1}} employee name only
+    "daily_quote": ["employee_name", "daily_quote_text"],
+    # CONFIRMED: {{1}} employee name only — do not pass announcement text as {{2}}
+    # TODO: no existing announcement/broadcast backend found in app.py — not wired to any route
+    "announcement":                     ["employee_name"]
+}
+
+
+def send_workflow_whatsapp(phone, template_key, parameters=None):
+    """Single entry point every workflow (task/attendance/leave/etc.) uses to
+    send a WhatsApp template message. Never raises — always returns a dict,
+    so callers can fire-and-forget without risking the original operation."""
+    template_name = WHATSAPP_TEMPLATES.get(template_key)
+    if not template_name:
+        return {"success": False, "reason": "unknown_template"}
+
+    return send_whatsapp_template(
+        phone,
+        template_name,
+        parameters or []
+    )
+
+
+def send_whatsapp_template(phone, template_name, parameters=None, language_code="en"):
     """
-    Send via Meta WhatsApp Cloud API.
-    Reads WHATSAPP_API_TOKEN + WHATSAPP_PHONE_NUMBER_ID (preferred), or a full
-    WHATSAPP_API_URL override for backward compatibility / self-hosted gateways.
+    Send an APPROVED Meta WhatsApp Cloud API template message (never free text).
+    Reads the existing WHATSAPP_API_TOKEN / WHATSAPP_PHONE_NUMBER_ID /
+    WHATSAPP_API_VERSION env vars — nothing is hard-coded.
+    Returns {"success": bool, "reason": str, "response": str|None}.
     """
-    wa_token = os.getenv("WHATSAPP_API_TOKEN", "").strip()
-    wa_url   = os.getenv("WHATSAPP_API_URL", "").strip()
+    phone_clean, err = normalize_phone_e164(phone)
+    if err:
+        return {"success": False, "reason": err, "response": None}
+
+    wa_token        = os.getenv("WHATSAPP_API_TOKEN", "").strip()
     phone_number_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()
+    wa_url          = os.getenv("WHATSAPP_API_URL", "").strip()
 
     if not wa_url:
         if not phone_number_id:
-            return False, "not_configured", None
+            return {"success": False, "reason": "not_configured", "response": None}
         api_version = os.getenv("WHATSAPP_API_VERSION", "v18.0").strip() or "v18.0"
         wa_url = f"https://graph.facebook.com/{api_version}/{phone_number_id}/messages"
 
     if not wa_token:
-        return False, "not_configured", None
+        return {"success": False, "reason": "not_configured", "response": None}
+
+    template_obj = {
+        "name": template_name,
+        "language": {"code": language_code}
+    }
+    # Only add the body component when parameters exist.
+    if parameters:
+        template_obj["components"] = [{
+            "type": "body",
+            "parameters": [{"type": "text", "text": str(p)} for p in parameters]
+        }]
 
     payload = json.dumps({
         "messaging_product": "whatsapp",
-        "to":   phone_clean,
-        "type": "text",
-        "text": {"body": message}
+        "to":       phone_clean,
+        "type":     "template",
+        "template": template_obj
     }).encode("utf-8")
 
     req = urllib.request.Request(
@@ -3789,17 +4024,34 @@ def _send_whatsapp_via_meta(phone_clean, message):
         },
         method="POST"
     )
+    print(f"[WHATSAPP TEMPLATE] Template: {template_name}")
+    print(f"[WHATSAPP TEMPLATE] Recipient: {phone_clean}")
+    print(f"[WHATSAPP TEMPLATE] Variables: {parameters or []}")
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
             resp_body = resp.read().decode(errors="replace")
-        return True, "sent", resp_body[:500]
+            print(f"[WHATSAPP TEMPLATE] HTTP status: {resp.status}")
+            print(f"[WHATSAPP TEMPLATE] Meta response: {resp_body[:500]}")
+        return {"success": True, "reason": "sent", "response": resp_body[:500]}
     except urllib.error.HTTPError as e:
         err_body = e.read().decode(errors="replace")
-        print(f"[QUOTE WA/meta] HTTPError {e.code} for {phone_clean}: {err_body}")
-        return False, f"http_{e.code}", err_body[:500]
+        reason = f"http_{e.code}"
+        # Meta error 131047 = "re-engagement message" / outside the 24h
+        # customer-service window. Approved templates are the correct fix
+        # (never retry, never fall back to a free-text message).
+        try:
+            err_json = json.loads(err_body)
+            meta_code = err_json.get("error", {}).get("code")
+            if meta_code == 131047:
+                reason = "outside_24h_window"
+        except (ValueError, TypeError):
+            pass
+        print(f"[WHATSAPP TEMPLATE] HTTP status: {e.code}")
+        print(f"[WHATSAPP TEMPLATE] Meta response: {err_body[:500]}")
+        return {"success": False, "reason": reason, "response": err_body[:500]}
     except Exception as e:
-        print(f"[QUOTE WA/meta] Error for {phone_clean}: {e}")
-        return False, str(e), None
+        print(f"[WHATSAPP TEMPLATE] Error for {phone_clean} (template={template_name}): {e}")
+        return {"success": False, "reason": str(e), "response": None}
 
 
 def _send_whatsapp_via_twilio(phone_clean, message):
@@ -3847,22 +4099,26 @@ def _send_whatsapp_via_twilio(phone_clean, message):
         return False, str(e), None
 
 
-def _send_whatsapp_attempt(phone_clean, message):
-    """Single attempt, routed to the configured provider. No retries here."""
+def _send_whatsapp_attempt(phone_clean, message, employee_name=None, quote_text=None):
+    """Single attempt, routed to the configured provider. No retries here.
+    Meta always sends the approved `daily_quote` template (employee_name is
+    the single {{1}} body parameter); Twilio is unaffected and keeps sending
+    the pre-built free-text `message` as before."""
     provider = os.getenv("WHATSAPP_PROVIDER", "meta").strip().lower()
     if provider == "twilio":
         return _send_whatsapp_via_twilio(phone_clean, message)
     elif provider == "meta":
-        return _send_whatsapp_via_meta(phone_clean, message)
+        result = send_workflow_whatsapp(phone_clean, "daily_quote", [employee_name])
+        return result.get("success", False), result.get("reason", "unknown_error"), result.get("response")
     else:
         return False, "unknown_provider", None
 
 
 # Failure reasons that will never succeed on retry — no point burning attempts on them.
-_NON_RETRYABLE_WA_REASONS = ("no_phone", "not_configured", "invalid_format", "unknown_provider")
+_NON_RETRYABLE_WA_REASONS = ("no_phone", "not_configured", "invalid_format", "unknown_provider", "outside_24h_window")
 
 
-def send_daily_quote_whatsapp(phone, quote_text, author=None, max_retries=3):
+def send_daily_quote_whatsapp(phone, quote_text, author=None, employee_name=None, max_retries=3):
     """
     Send motivational quote via the configured WhatsApp provider (Meta Cloud API
     or Twilio), from the Founder's WhatsApp Business number.
@@ -3879,7 +4135,7 @@ def send_daily_quote_whatsapp(phone, quote_text, author=None, max_retries=3):
 
     reason, provider_response = "unknown_error", None
     for attempt in range(max_retries):
-        ok, reason, provider_response = _send_whatsapp_attempt(phone_clean, message)
+        ok, reason, provider_response = _send_whatsapp_attempt(phone_clean, message, employee_name, quote_text)
         if ok:
             return True, "sent", provider_response
         if reason in _NON_RETRYABLE_WA_REASONS:
@@ -3984,7 +4240,7 @@ def dispatch_daily_quote():
                 continue
 
             phone = (user.phone or "").strip()
-            ok, reason = send_daily_quote_whatsapp(phone, quote_text, author)
+            ok, reason, provider_response = send_daily_quote_whatsapp(phone, quote_text, author, user.name)
 
             if ok:
                 status, err_msg = "sent", None
@@ -4095,6 +4351,79 @@ def daily_quote_stats():
         "skipped":          skipped_count,
         "recent_failures":  failures,
     })
+
+
+# ─────────────────────────────────────────────
+# WHATSAPP WEBHOOK (Meta status callbacks)
+# ─────────────────────────────────────────────
+
+@app.route("/api/whatsapp/webhook", methods=["GET"])
+def whatsapp_webhook_verify():
+    """Meta's webhook verification handshake. Reads WHATSAPP_VERIFY_TOKEN —
+    never hard-coded, never echoed back except the challenge Meta expects."""
+    verify_token = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
+    mode      = request.args.get("hub.mode")
+    token     = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge", "")
+
+    if mode == "subscribe" and verify_token and token == verify_token:
+        return challenge, 200
+    return jsonify({"error": "Verification failed"}), 403
+
+
+@app.route("/api/whatsapp/webhook", methods=["POST"])
+def whatsapp_webhook_receive():
+    """Records failed/undeliverable Meta template statuses (e.g. error 131047)
+    so they're visible for follow-up instead of silently disappearing."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        for entry in payload.get("entry", []):
+            for change in entry.get("changes", []):
+                value = change.get("value", {})
+                for status in value.get("statuses", []):
+                    if status.get("status") != "failed":
+                        continue
+                    for err in status.get("errors", [{}]):
+                        db.session.add(WhatsAppWebhookEvent(
+                            wa_message_id = status.get("id"),
+                            recipient     = status.get("recipient_id"),
+                            status        = status.get("status"),
+                            error_code    = str(err.get("code", "")),
+                            error_title   = err.get("title", ""),
+                            error_message = err.get("message", ""),
+                            error_details = (err.get("error_data") or {}).get("details", ""),
+                            received_at   = now_iso()
+                        ))
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"[WA WEBHOOK] Error processing callback: {e}")
+
+    return jsonify({"success": True}), 200
+
+
+@app.route("/api/whatsapp/test-template", methods=["POST"])
+@jwt_required()
+def test_whatsapp_template():
+    """TEMPORARY test endpoint — sends the caller their own task_assignment
+    template so template delivery can be verified end-to-end. Remove once
+    the integration is confirmed working in production."""
+    uid = get_jwt_identity()
+    user = db.session.get(User, uid)
+    phone = (user.phone or "").strip() if user else ""
+    if not phone:
+        return jsonify({"success": False, "reason": "no_phone"}), 400
+
+    result = send_workflow_whatsapp(
+        phone,
+        "task_assignment",
+        [
+            (user.name or "there").split()[0],
+            "WhatsApp Integration Test",
+            today_str()
+        ]
+    )
+    return jsonify({"success": result.get("success", False), "reason": result.get("reason")})
 
 
 # ─────────────────────────────────────────────
@@ -4350,6 +4679,20 @@ def check_self_task_reminders():
                 )
                 t.notification_sent = True
                 fired += 1
+
+                # WhatsApp (best-effort — must never break the reminder scheduler)
+                try:
+                    owner = db.session.get(User, t.userId)
+                    owner_phone = (owner.phone or "").strip() if owner else ""
+                    owner_name  = owner.name if owner else ""
+                    if owner_phone:
+                        send_workflow_whatsapp(
+                            owner_phone,
+                            "task_update",
+                            [owner_name, f'"{t.title}" — reminder', ""]
+                        )
+                except Exception as e:
+                    print(f"[WA] task_update (self-task reminder) send failed for {t.userId}: {e}")
         if fired:
             try:
                 db.session.commit()
@@ -4419,6 +4762,24 @@ def check_birthday_alerts():
                     title=title,
                     body=body
                 )
+
+            # WhatsApp (best-effort — must never break the scheduler).
+            # TODO CONFIRM: this alert fires 7 DAYS BEFORE the birthday as a
+            # founder "wish preparation" heads-up, not a same-day greeting to
+            # the employee. Sending the "birthday_wish" template to the
+            # employee here means they'd get "Happy birthday!" a week early.
+            # Left wired to employee.phone per the change request, but this
+            # trigger point needs confirmation before going live.
+            try:
+                employee_phone = (emp.phone or "").strip()
+                if employee_phone:
+                    send_workflow_whatsapp(
+                        employee_phone,
+                        "birthday",
+                        [first_name]
+                    )
+            except Exception as e:
+                print(f"[WA] birthday_wish send failed for {emp.id}: {e}")
 
             db.session.add(BirthdayAlert(
                 employee_id=emp.id,
